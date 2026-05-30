@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { listZones } from '../services/api';
+import { listZones, autoCreateZones } from '../services/api';
 
 function loadGoogleMapsScript(apiKey) {
   return new Promise((resolve, reject) => {
@@ -54,9 +54,23 @@ export default function ZoneMap({ selectedCountry, googleMapsApiKey }) {
   const [loading, setLoading] = useState(false);
   const [scriptReady, setScriptReady] = useState(false);
   const [scriptError, setScriptError] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const mapRef = useRef(null);
   const googleMapRef = useRef(null);
   const markersRef = useRef([]);
+
+  const handleGenerateZones = async () => {
+    if (!selectedCountry) return;
+    setGenerating(true);
+    try {
+      await autoCreateZones(selectedCountry.id, '01', '01', 5000);
+      await loadZones();
+    } catch (err) {
+      console.error('Error generating zones', err);
+      alert('Failed to generate zones: ' + (err.response?.data?.detail || err.message));
+    }
+    setGenerating(false);
+  };
 
   const loadZones = useCallback(async () => {
     if (!selectedCountry) return;
@@ -145,8 +159,23 @@ export default function ZoneMap({ selectedCountry, googleMapsApiKey }) {
           <div style={{ padding: '30px' }}>
             <h3 style={{ marginBottom: '16px' }}>Postal Zones</h3>
             {zones.length === 0 ? (
-              <div style={{ color: '#999', fontSize: '14px' }}>
-                No zones found for this country yet. Run the Country Setup Wizard and click <strong>Auto-Create Zones</strong>, or seed demo data.
+              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                <div style={{ fontSize: '16px', fontWeight: 600, color: '#1a1a2e', marginBottom: '12px' }}>
+                  No postal zones yet
+                </div>
+                <div style={{ fontSize: '14px', color: '#666', marginBottom: '20px', maxWidth: '400px', margin: '0 auto 20px' }}>
+                  {selectedCountry.name} has a profile but no zones have been generated.
+                </div>
+                <button
+                  style={{
+                    padding: '12px 28px', background: '#6c63ff', color: 'white', border: 'none',
+                    borderRadius: '8px', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
+                  }}
+                  onClick={handleGenerateZones}
+                  disabled={generating}
+                >
+                  {generating ? 'Generating zones…' : 'Generate Postal Zones'}
+                </button>
               </div>
             ) : (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>

@@ -1,6 +1,23 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { listZones } from '../services/api';
 
+function loadGoogleMapsScript(apiKey) {
+  return new Promise((resolve, reject) => {
+    if (window.google && window.google.maps) { resolve(); return; }
+    const existing = document.querySelector('script[data-google-maps]');
+    if (existing) { existing.addEventListener('load', () => resolve()); existing.addEventListener('error', reject); return; }
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+    script.async = true;
+    script.defer = true;
+    script.setAttribute('data-google-maps', 'true');
+    script.onload = () => resolve();
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+}
+
+
 const styles = {
   container: { flex: 1, display: 'flex', flexDirection: 'column', height: '100vh' },
   toolbar: {
@@ -35,6 +52,8 @@ export default function ZoneMap({ selectedCountry, googleMapsApiKey }) {
   const [zones, setZones] = useState([]);
   const [selectedZone, setSelectedZone] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [scriptReady, setScriptReady] = useState(false);
+  const [scriptError, setScriptError] = useState(false);
   const mapRef = useRef(null);
   const googleMapRef = useRef(null);
   const markersRef = useRef([]);
@@ -53,20 +72,28 @@ export default function ZoneMap({ selectedCountry, googleMapsApiKey }) {
 
   useEffect(() => { loadZones(); }, [loadZones]);
 
-  // Initialize Google Map if API key provided and script loaded
+  // Load Google Maps script and initialize map
   useEffect(() => {
-    if (!googleMapsApiKey || !window.google || !mapRef.current || !selectedCountry) return;
+    if (!googleMapsApiKey || !mapRef.current || !selectedCountry) return;
     if (googleMapRef.current) return;
-    const lat = 4.85;
-    const lng = 31.6;
-    googleMapRef.current = new window.google.maps.Map(mapRef.current, {
-      center: { lat, lng }, zoom: 6, mapTypeId: 'roadmap',
-    });
+    let cancelled = false;
+    loadGoogleMapsScript(googleMapsApiKey)
+      .then(() => {
+        if (cancelled) return;
+        setScriptReady(true);
+        const lat = selectedCountry.center_lat || 4.85;
+        const lng = selectedCountry.center_lng || 31.6;
+        googleMapRef.current = new window.google.maps.Map(mapRef.current, {
+          center: { lat, lng }, zoom: 6, mapTypeId: 'roadmap',
+        });
+      })
+      .catch(() => { if (!cancelled) setScriptError(true); });
+    return () => { cancelled = true; };
   }, [selectedCountry, googleMapsApiKey]);
 
   // Draw zones on Google Map
   useEffect(() => {
-    if (!googleMapsApiKey || !googleMapRef.current || !zones.length) return;
+    if (!googleMapsApiKey || !scriptReady || !googleMapRef.current || !zones.length) return;
     const map = googleMapRef.current;
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
@@ -109,42 +136,51 @@ export default function ZoneMap({ selectedCountry, googleMapsApiKey }) {
         </button>
       </div>
       <div style={styles.mapContainer}>
-        {googleMapsApiKey ? (
+        {googleMapsApiKey && scriptError && (
+          <div style={styles.emptyState}>Google Maps failed to load. Check your API key.</div>
+        )}
+        {googleMapsApiKey && !scriptError ? (
           <div ref={mapRef} style={{ width: '100%', height: '100%' }} />
         ) : (
           <div style={{ padding: '30px' }}>
             <h3 style={{ marginBottom: '16px' }}>Postal Zones</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
-              {zones.map((zone, idx) => {
-                const color = REGION_COLORS[idx % REGION_COLORS.length];
-                return (
-                  <div
-                    key={zone.id}
-                    onClick={() => setSelectedZone(zone)}
-                    style={{
-                      padding: '16px', borderRadius: '10px', cursor: 'pointer',
-                      background: '#fff',
-                      borderLeft: '4px solid ' + color,
-                      boxShadow: selectedZone && selectedZone.id === zone.id
-                        ? '0 2px 12px rgba(108,99,255,0.3)'
-                        : '0 1px 4px rgba(0,0,0,0.08)',
-                    }}
-                  >
-                    <div style={{ fontSize: '18px', fontWeight: 700, color: color }}>
-                      {zone.postal_code}
-                    </div>
-                    <div style={{ fontSize: '13px', color: '#333', marginTop: '4px' }}>
-                      {zone.name}
-                    </div>
-                    {zone.population && (
-                      <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
-                        Pop: {zone.population.toLocaleString()}
+            {zones.length === 0 ? (
+              <div style={{ color: '#999', fontSize: '14px' }}>
+                No zones found for this country yet. Run the Country Setup Wizard and click <strong>Auto-Create Zones</strong>, or seed demo data.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>
+                {zones.map((zone, idx) => {
+                  const color = REGION_COLORS[idx % REGION_COLORS.length];
+                  return (
+                    <div
+                      key={zone.id}
+                      onClick={() => setSelectedZone(zone)}
+                      style={{
+                        padding: '16px', borderRadius: '10px', cursor: 'pointer',
+                        background: '#fff',
+                        borderLeft: '4px solid ' + color,
+                        boxShadow: selectedZone && selectedZone.id === zone.id
+                          ? '0 2px 12px rgba(108,99,255,0.3)'
+                          : '0 1px 4px rgba(0,0,0,0.08)',
+                      }}
+                    >
+                      <div style={{ fontSize: '18px', fontWeight: 700, color: color }}>
+                        {zone.postal_code}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+                      <div style={{ fontSize: '13px', color: '#333', marginTop: '4px' }}>
+                        {zone.name}
+                      </div>
+                      {zone.population && (
+                        <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                          Pop: {zone.population.toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
         {selectedZone && (

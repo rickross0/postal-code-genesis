@@ -55,8 +55,9 @@ export default function CountryWizard({ onCountryCreated }) {
   const [form, setForm] = useState({
     name: '', iso_code: '', tier: 'mixed_rural_urban',
     estimated_population: '', area_sq_km: '', num_regions: '', num_districts: '',
-    languages: 'English', has_street_names: false, has_house_numbers: false,
-    urban_percentage: '0', literacy_rate: '0', mobile_penetration: '0',
+    languages: 'English', has_street_names: false, has_house_numbers: false, has_any_addressing: false,
+    urban_percentage: '0', literacy_rate: '0', mobile_penetration: '0', internet_penetration: '0',
+    capital_city: '', capital_lat: '', capital_lng: '',
   });
 
   const handleChange = (e) => {
@@ -111,18 +112,24 @@ export default function CountryWizard({ onCountryCreated }) {
     setLoading(true);
     try {
       const payload = {
-        ...form,
-        capital_city: form.capital_city || undefined,
-        capital_lat: form.capital_lat ? parseFloat(form.capital_lat) : undefined,
-        capital_lng: form.capital_lng ? parseFloat(form.capital_lng) : undefined,
-        estimated_population: parseInt(form.estimated_population),
-        area_sq_km: parseFloat(form.area_sq_km),
-        num_regions: parseInt(form.num_regions),
-        num_districts: parseInt(form.num_districts),
-        languages: form.languages.split(',').map((l) => l.trim()),
-        urban_percentage: parseFloat(form.urban_percentage),
-        literacy_rate: parseFloat(form.literacy_rate) / 100,
-        mobile_penetration: parseFloat(form.mobile_penetration) / 100,
+        name: form.name,
+        iso_code: form.iso_code,
+        tier: form.tier,
+        estimated_population: parseInt(form.estimated_population) || 0,
+        area_sq_km: parseFloat(form.area_sq_km) || 0,
+        num_regions: parseInt(form.num_regions) || 0,
+        num_districts: parseInt(form.num_districts) || 0,
+        languages: form.languages.split(',').map((l) => l.trim()).filter(Boolean),
+        has_street_names: !!form.has_street_names,
+        has_house_numbers: !!form.has_house_numbers,
+        has_any_addressing: !!form.has_any_addressing,
+        urban_percentage: parseFloat(form.urban_percentage) || 0,
+        literacy_rate: (parseFloat(form.literacy_rate) || 0) / 100,
+        mobile_penetration: (parseFloat(form.mobile_penetration) || 0) / 100,
+        internet_penetration: (parseFloat(form.internet_penetration) || 0) / 100,
+        capital_city: form.capital_city || null,
+        capital_lat: form.capital_lat ? parseFloat(form.capital_lat) : null,
+        capital_lng: form.capital_lng ? parseFloat(form.capital_lng) : null,
       };
       const res = await createCountry(payload);
       setCreatedCountry(res.data);

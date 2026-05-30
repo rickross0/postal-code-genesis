@@ -12,7 +12,7 @@ services:
       - key: POSTGRES_USER
         value: postgres
       - key: POSTGRES_PASSWORD
-        generate: true
+        sync: false
 
   # ── Combined Backend + Frontend ──
   - type: web

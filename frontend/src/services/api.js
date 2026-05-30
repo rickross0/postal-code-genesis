@@ -1,8 +1,14 @@
 import axios from 'axios';
 
-const API_BASE = process.env.REACT_APP_API_URL || '/api/v1';
+// On Render, the backend URL comes from env var; locally it proxies via package.json
+const API_BASE = process.env.REACT_APP_API_URL
+  ? `${process.env.REACT_APP_API_URL}/api/v1`
+  : '/api/v1';
 
-const api = axios.create({ baseURL: API_BASE });
+const api = axios.create({
+  baseURL: API_BASE,
+  timeout: 30000,
+});
 
 // Countries
 export const createCountry = (data) => api.post('/countries', data);

@@ -1,7 +1,9 @@
 """FastAPI application entry point."""
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 
 from app.core.config import settings
@@ -21,9 +23,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# CORS — allow all origins in production for Render deployment
+allowed_origins = [
+    settings.frontend_url,
+    "http://localhost:3000",
+    "https://postal-genesis.onrender.com",
+    # Allow any Render subdomain
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url, "http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,3 +54,9 @@ async def root():
         "version": settings.app_version,
         "docs": "/docs",
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

@@ -1,0 +1,59 @@
+services:
+  # ── PostgreSQL + PostGIS Database ──
+  - type: pserv
+    name: postal-genesis-db
+    plan: starter
+    runtime: image
+    image:
+      url: postgis/postgis:15-3.4
+    envVars:
+      - key: POSTGRES_DB
+        value: postal_genesis
+      - key: POSTGRES_USER
+        value: postgres
+      - key: POSTGRES_PASSWORD
+        sync: false
+
+  # ── Backend API (FastAPI) ──
+  - type: web
+    name: postal-genesis-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.render.backend
+    plan: starter
+    envVars:
+      - key: DATABASE_URL
+        fromService:
+          name: postal-genesis-db
+          type: pserv
+          property: connection
+      - key: POSTGRES_PASSWORD
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: FRONTEND_URL
+        value: https://postal-genesis.onrender.com
+      - key: DEBUG
+        value: "false"
+      - key: PORT
+        value: "8000"
+    dependsOn:
+      - postal-genesis-db
+
+  # ── Frontend (React) ──
+  - type: web
+    name: postal-genesis-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile.render.frontend
+    plan: starter
+    envVars:
+      - key: REACT_APP_API_URL
+        fromService:
+          name: postal-genesis-api
+          type: web
+          property: hosturl
+      - key: REACT_APP_GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: PORT
+        value: "3000"
+    dependsOn:
+      - postal-genesis-api

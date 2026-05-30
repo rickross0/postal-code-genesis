@@ -1,10 +1,10 @@
-"""Intelligent Zone Creation Engine — creates postal zones algorithmically."""
+"""Intelligent Zone Creation Engine - creates postal zones algorithmically."""
 
-import numpy as np
 from typing import List, Dict, Any, Optional, Tuple
 from shapely.geometry import Polygon, Point, MultiPolygon, mapping
 from shapely.ops import unary_union
 import json
+import math
 
 
 class ZoneCreationEngine:
@@ -42,7 +42,12 @@ class ZoneCreationEngine:
         n_zones: int,
     ) -> List[Dict[str, Any]]:
         """Voronoi-based zones centered on settlements."""
-        from scipy.spatial import Voronoi
+        try:
+            import numpy as np
+            from scipy.spatial import Voronoi
+        except ImportError:
+            # Fallback to grid if scipy not available
+            return self._create_grid_zones(region, n_zones)
 
         points = []
         for s in settlements[:n_zones]:
@@ -61,7 +66,6 @@ class ZoneCreationEngine:
 
         points_arr = np.array(points[:n_zones])
 
-        # Need at least 4 points for Voronoi
         if len(points_arr) < 4:
             return self._create_grid_zones(region, n_zones)
 
@@ -95,9 +99,10 @@ class ZoneCreationEngine:
         self, region: Polygon, n_zones: int
     ) -> List[Dict[str, Any]]:
         """Fallback: create a regular grid of zones."""
+        import math
         minx, miny, maxx, maxy = region.bounds
-        cols = max(2, int(np.ceil(np.sqrt(n_zones))))
-        rows = max(2, int(np.ceil(n_zones / cols)))
+        cols = max(2, int(math.ceil(math.sqrt(n_zones))))
+        rows = max(2, int(math.ceil(n_zones / cols)))
         dx = (maxx - minx) / cols
         dy = (maxy - miny) / rows
 
@@ -192,15 +197,14 @@ class ZoneCreationEngine:
 
     @staticmethod
     def _calc_area_sq_km(polygon) -> float:
-        """Calculate area in square kilometers using equirectangular approximation."""
+        """Calculate area in square kilometers."""
         try:
             from pyproj import Geod
             geod = Geod(ellps="WGS84")
             area, _ = geod.geometry_area_perimeter(polygon)
             return abs(area) / 1_000_000
         except Exception:
-            # Fallback: rough equirectangular approximation
             minx, miny, maxx, maxy = polygon.bounds
-            dx_km = (maxx - minx) * 111.32 * np.cos(np.radians((miny + maxy) / 2))
+            dx_km = (maxx - minx) * 111.32 * math.cos(math.radians((miny + maxy) / 2))
             dy_km = (maxy - miny) * 111.32
-            return dx_km * dy_km * 0.5  # rough half-bounding-box
+            return dx_km * dy_km * 0.5

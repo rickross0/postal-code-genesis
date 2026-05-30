@@ -53,12 +53,12 @@ export default function ZoneMap({ selectedCountry, googleMapsApiKey }) {
 
   useEffect(() => { loadZones(); }, [loadZones]);
 
-  // Initialize Google Map if API key provided
+  // Initialize Google Map if API key provided and script loaded
   useEffect(() => {
     if (!googleMapsApiKey || !window.google || !mapRef.current || !selectedCountry) return;
     if (googleMapRef.current) return;
-    const lat = selectedCountry.name === 'South Sudan' ? 6.877 : 0;
-    const lng = selectedCountry.name === 'South Sudan' ? 31.307 : 30;
+    const lat = 4.85;
+    const lng = 31.6;
     googleMapRef.current = new window.google.maps.Map(mapRef.current, {
       center: { lat, lng }, zoom: 6, mapTypeId: 'roadmap',
     });
@@ -81,8 +81,11 @@ export default function ZoneMap({ selectedCountry, googleMapsApiKey }) {
         radius: Math.max(2000, (zone.area_sq_km || 10) * 500),
       });
       const marker = new window.google.maps.Marker({
-        position: pos, map, title: `${zone.postal_code} — ${zone.name}`,
-        icon: { path: window.google.maps.SymbolPath.CIRCLE, scale: 6, fillColor: color, fillOpacity: 1, strokeWeight: 2, strokeColor: '#fff' },
+        position: pos, map, title: zone.postal_code + ' - ' + zone.name,
+        icon: {
+          path: window.google.maps.SymbolPath.CIRCLE, scale: 6,
+          fillColor: color, fillOpacity: 1, strokeWeight: 2, strokeColor: '#fff',
+        },
       });
       marker.addListener('click', () => setSelectedZone(zone));
       markersRef.current.push(marker, circle);
@@ -91,16 +94,18 @@ export default function ZoneMap({ selectedCountry, googleMapsApiKey }) {
   }, [zones, googleMapsApiKey]);
 
   if (!selectedCountry) {
-    return <div style={styles.emptyState}>📍 Select a country from the sidebar to view zones</div>;
+    return <div style={styles.emptyState}>Select a country from the sidebar to view zones</div>;
   }
 
   return (
     <div style={styles.container}>
       <div style={styles.toolbar}>
-        <span style={{ fontWeight: 600, fontSize: '14px' }}>📍 {selectedCountry.name} Zones</span>
+        <span style={{ fontWeight: 600, fontSize: '14px' }}>
+          {selectedCountry.name} Zones
+        </span>
         <span style={{ fontSize: '13px', color: '#666' }}>{zones.length} zones</span>
         <button style={styles.btn} onClick={loadZones} disabled={loading}>
-          {loading ? 'Loading...' : '↻ Refresh'}
+          {loading ? 'Loading...' : 'Refresh'}
         </button>
       </div>
       <div style={styles.mapContainer}>
@@ -119,13 +124,23 @@ export default function ZoneMap({ selectedCountry, googleMapsApiKey }) {
                     style={{
                       padding: '16px', borderRadius: '10px', cursor: 'pointer',
                       background: '#fff',
-                      borderLeft: `4px solid ${color}`,
-                      boxShadow: selectedZone?.id === zone.id ? '0 2px 12px rgba(108,99,255,0.3)' : '0 1px 4px rgba(0,0,0,0.08)',
+                      borderLeft: '4px solid ' + color,
+                      boxShadow: selectedZone && selectedZone.id === zone.id
+                        ? '0 2px 12px rgba(108,99,255,0.3)'
+                        : '0 1px 4px rgba(0,0,0,0.08)',
                     }}
                   >
-                    <div style={{ fontSize: '18px', fontWeight: 700, color }}>{zone.postal_code}</div>
-                    <div style={{ fontSize: '13px', color: '#333', marginTop: '4px' }}>{zone.name}</div>
-                    {zone.population && <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>Pop: {zone.population.toLocaleString()}</div>}
+                    <div style={{ fontSize: '18px', fontWeight: 700, color: color }}>
+                      {zone.postal_code}
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#333', marginTop: '4px' }}>
+                      {zone.name}
+                    </div>
+                    {zone.population && (
+                      <div style={{ fontSize: '12px', color: '#999', marginTop: '2px' }}>
+                        Pop: {zone.population.toLocaleString()}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -136,12 +151,21 @@ export default function ZoneMap({ selectedCountry, googleMapsApiKey }) {
           <div style={styles.infoPanel}>
             <div style={styles.infoCode}>{selectedZone.postal_code}</div>
             <div style={styles.infoTitle}>{selectedZone.name}</div>
-            <div style={styles.infoRow}>Region: {selectedZone.region_name || '—'}</div>
-            <div style={styles.infoRow}>District: {selectedZone.district_name || '—'}</div>
-            {selectedZone.population && <div style={styles.infoRow}>Population: {selectedZone.population.toLocaleString()}</div>}
-            {selectedZone.area_sq_km && <div style={styles.infoRow}>Area: {selectedZone.area_sq_km.toFixed(1)} km²</div>}
+            <div style={styles.infoRow}>Region: {selectedZone.region_name || '-'}</div>
+            <div style={styles.infoRow}>District: {selectedZone.district_name || '-'}</div>
+            {selectedZone.population && (
+              <div style={styles.infoRow}>Population: {selectedZone.population.toLocaleString()}</div>
+            )}
+            {selectedZone.area_sq_km && (
+              <div style={styles.infoRow}>Area: {selectedZone.area_sq_km.toFixed(1)} km2</div>
+            )}
             <div style={styles.infoRow}>Status: {selectedZone.status}</div>
-            <button style={{ ...styles.btn, marginTop: '8px', fontSize: '12px', padding: '6px 12px' }} onClick={() => setSelectedZone(null)}>Close</button>
+            <button
+              style={{ ...styles.btn, marginTop: '8px', fontSize: '12px', padding: '6px 12px' }}
+              onClick={() => setSelectedZone(null)}
+            >
+              Close
+            </button>
           </div>
         )}
       </div>

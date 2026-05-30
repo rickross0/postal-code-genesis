@@ -1,9 +1,8 @@
 import axios from 'axios';
 
-// On Render, the backend URL comes from env var; locally it proxies via package.json
-const API_BASE = process.env.REACT_APP_API_URL
-  ? `${process.env.REACT_APP_API_URL}/api/v1`
-  : '/api/v1';
+// When served from the same origin (production), use relative URLs.
+// In development with CRA dev server, proxy in package.json handles it.
+const API_BASE = '/api/v1';
 
 const api = axios.create({
   baseURL: API_BASE,

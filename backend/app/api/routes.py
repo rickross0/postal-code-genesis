@@ -11,6 +11,7 @@ from app.models.schemas import (
     CountryProfileResponse,
     CountryAnalysisResponse,
     ZoneCreate,
+    ZoneUpdate,
     ZoneResponse,
     LookupResult,
     SearchResult,
@@ -224,7 +225,8 @@ async def list_zones(
                ST_Y(pz.center_point) AS center_lat,
                ST_X(pz.center_point) AS center_lng,
                pz.area_sq_km, pz.population,
-               d.name AS district_name, r.name AS region_name
+               d.name AS district_name, r.name AS region_name,
+               ST_AsGeoJSON(pz.boundary) AS boundary_geojson
         FROM postal_zones pz
         JOIN districts d ON pz.district_id = d.id
         JOIN regions r ON d.region_id = r.id
@@ -239,9 +241,77 @@ async def list_zones(
             area_sq_km=r["area_sq_km"], population=r["population"],
             region_name=r["region_name"], district_name=r["district_name"],
             status=r["status"],
+            boundary_geojson=json.loads(r["boundary_geojson"]) if r["boundary_geojson"] else None,
         )
         for r in result.mappings().all()
     ]
+
+
+# ── Zone Update ───────────────────────────────────────────
+
+@router.put("/zones/{zone_id}", response_model=ZoneResponse)
+async def update_zone(
+    zone_id: int,
+    zone_update: ZoneUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a zone's name, population, or redraw its boundary."""
+    from sqlalchemy import select, text
+    from geoalchemy2.shape import from_shape
+    from shapely.geometry import shape
+
+    result = await db.execute(select(PostalZone).where(PostalZone.id == zone_id))
+    zone = result.scalar_one_or_none()
+    if not zone:
+        raise HTTPException(404, "Zone not found")
+
+    if zone_update.name is not None:
+        zone.name = zone_update.name
+    if zone_update.population is not None:
+        zone.population = zone_update.population
+    if zone_update.boundary_geojson is not None:
+        try:
+            geom = shape(zone_update.boundary_geojson)
+            if not geom.is_valid:
+                raise ValueError("Invalid or self-intersecting polygon")
+            zone.boundary = from_shape(geom, srid=4326)
+            zone.center_point = from_shape(geom.centroid, srid=4326)
+            try:
+                from pyproj import Geod
+                geod = Geod(ellps="WGS84")
+                area, _ = geod.geometry_area_perimeter(geom)
+                zone.area_sq_km = abs(area) / 1_000_000
+            except Exception:
+                pass
+        except Exception as e:
+            raise HTTPException(400, f"Invalid boundary geometry: {e}")
+
+    await db.flush()
+
+    fresh = await db.execute(text("""
+        SELECT pz.id, pz.postal_code, pz.name, pz.status,
+               ST_Y(pz.center_point) AS center_lat,
+               ST_X(pz.center_point) AS center_lng,
+               pz.area_sq_km, pz.population,
+               d.name AS district_name, r.name AS region_name,
+               ST_AsGeoJSON(pz.boundary) AS boundary_geojson
+        FROM postal_zones pz
+        JOIN districts d ON pz.district_id = d.id
+        JOIN regions r ON d.region_id = r.id
+        WHERE pz.id = :zone_id
+    """), {"zone_id": zone_id})
+    row = fresh.mappings().first()
+    if not row:
+        raise HTTPException(404, "Zone not found after update")
+
+    return ZoneResponse(
+        id=row["id"], postal_code=row["postal_code"], name=row["name"],
+        center_lat=row["center_lat"] or 0, center_lng=row["center_lng"] or 0,
+        area_sq_km=row["area_sq_km"], population=row["population"],
+        region_name=row["region_name"], district_name=row["district_name"],
+        status=row["status"],
+        boundary_geojson=json.loads(row["boundary_geojson"]) if row["boundary_geojson"] else None,
+    )
 
 
 # ── Lookup ────────────────────────────────────────────────

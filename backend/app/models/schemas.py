@@ -97,6 +97,12 @@ class ZoneCreate(BaseModel):
     landmarks: Optional[List[Dict[str, Any]]] = None
 
 
+class ZoneUpdate(BaseModel):
+    name: Optional[str] = None
+    population: Optional[int] = None
+    boundary_geojson: Optional[Dict[str, Any]] = None
+
+
 class ZoneResponse(BaseModel):
     id: int
     postal_code: str

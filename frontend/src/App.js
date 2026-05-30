@@ -12,7 +12,6 @@ const styles = {
   main: { flex: 1, overflow: 'auto' },
 };
 
-const GOOGLE_MAPS_KEY = process.env.REACT_APP_GOOGLE_MAPS_API_KEY || '';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('wizard');
@@ -53,7 +52,7 @@ export default function App() {
       case 'countries':
         return <CountryList onSelect={handleSelectCountry} />;
       case 'map':
-        return <ZoneMap selectedCountry={selectedCountry} googleMapsApiKey={GOOGLE_MAPS_KEY} />;
+        return <ZoneMap selectedCountry={selectedCountry} />;
       case 'lookup':
         return <LookupPanel />;
       case 'policy':

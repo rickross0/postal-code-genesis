@@ -28,4 +28,6 @@ export const lookupByName = (query, country) => api.get(`/lookup/search?query=${
 // USSD
 export const ussdLookup = (data) => api.post('/lookup/ussd', data);
 
+export const updateZone = (zoneId, data) => api.put(`/zones/${zoneId}`, data);
+
 export default api;

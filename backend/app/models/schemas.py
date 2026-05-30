@@ -1,6 +1,6 @@
 """Pydantic schemas for API request/response models."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
@@ -13,13 +13,13 @@ class CountryTier(str, Enum):
 
 
 class CountryProfileCreate(BaseModel):
-    name: str = Field(..., example="South Sudan")
-    iso_code: str = Field(..., min_length=2, max_length=3, example="SSD")
+    name: str
+    iso_code: str = Field(min_length=2, max_length=3)
     tier: CountryTier
-    estimated_population: int = Field(..., gt=0)
-    area_sq_km: float = Field(..., gt=0)
-    num_regions: int = Field(..., gt=0)
-    num_districts: int = Field(..., gt=0)
+    estimated_population: int = Field(gt=0)
+    area_sq_km: float = Field(gt=0)
+    num_regions: int = Field(gt=0)
+    num_districts: int = Field(gt=0)
     languages: List[str] = []
     existing_admin_divisions: Dict[str, int] = {}
     has_street_names: bool = False
@@ -45,8 +45,7 @@ class CountryProfileResponse(BaseModel):
     literacy_rate: float
     mobile_penetration: float
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CodeFormatResponse(BaseModel):
@@ -114,8 +113,8 @@ class ZoneResponse(BaseModel):
 
 
 class LookupByCoordinates(BaseModel):
-    lat: float = Field(..., description="Latitude")
-    lng: float = Field(..., description="Longitude")
+    lat: float
+    lng: float
 
 
 class LookupResult(BaseModel):
@@ -149,7 +148,7 @@ class USSDRequest(BaseModel):
 
 class USSDResponse(BaseModel):
     response: str
-    type: str  # "CON" or "END"
+    type: str
 
 
 class PolicyDocumentResponse(BaseModel):

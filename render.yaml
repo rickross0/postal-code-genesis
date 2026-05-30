@@ -34,7 +34,10 @@ services:
       - key: DB_USER
         value: postgres
       - key: DB_PASSWORD
-        sync: false
+        fromService:
+          name: postal-genesis-db
+          type: pserv
+          property: password
       - key: DB_NAME
         value: postal_genesis
       - key: GOOGLE_MAPS_API_KEY

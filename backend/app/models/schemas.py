@@ -1,7 +1,7 @@
 """Pydantic schemas for API request/response models."""
 
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from typing import Optional, List, Dict, Any, Union
 from enum import Enum
 
 
@@ -15,13 +15,13 @@ class CountryTier(str, Enum):
 class CountryProfileCreate(BaseModel):
     name: str
     iso_code: str = Field(min_length=2, max_length=3)
-    tier: CountryTier
+    tier: Union[CountryTier, str]
     estimated_population: int = Field(ge=0)
     area_sq_km: float = Field(ge=0)
     num_regions: int = Field(ge=0)
     num_districts: int = Field(ge=0)
-    languages: List[str] = []
-    existing_admin_divisions: Dict[str, int] = {}
+    languages: Union[List[str], str] = []
+    existing_admin_divisions: Union[Dict[str, int], str] = {}
     has_street_names: bool = False
     has_house_numbers: bool = False
     has_any_addressing: bool = False
@@ -33,8 +33,36 @@ class CountryProfileCreate(BaseModel):
     capital_lat: Optional[float] = None
     capital_lng: Optional[float] = None
 
+    @field_validator('tier', mode='before')
+    @classmethod
+    def parse_tier(cls, v):
+        if isinstance(v, str):
+            # Try to find matching enum value
+            for tier in CountryTier:
+                if tier.value == v or tier.name == v:
+                    return tier
+            # If no match, assume it's a valid string value
+            return v
+        return v
+    
+    @field_validator('languages', mode='before')
+    @classmethod
+    def parse_languages(cls, v):
+        if isinstance(v, str):
+            return [l.strip() for l in v.split(',') if l.strip()]
+        return v or []
+    
+    @field_validator('existing_admin_divisions', mode='before')
+    @classmethod
+    def parse_admin_divisions(cls, v):
+        if isinstance(v, str):
+            return {}
+        return v or {}
+
 
 class CountryProfileResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     name: str
     iso_code: str
@@ -51,8 +79,6 @@ class CountryProfileResponse(BaseModel):
     capital_lat: Optional[float] = None
     capital_lng: Optional[float] = None
 
-    model_config = ConfigDict(from_attributes=True)
-
 
 class CodeFormatResponse(BaseModel):
     pattern: str
@@ -65,104 +91,74 @@ class CodeFormatResponse(BaseModel):
     example: str
 
 
-class AnalysisRecommendation(BaseModel):
-    code_length: int
-    code_format: CodeFormatResponse
-    hierarchy_levels: int
-    estimated_total_zones: int
-    people_per_zone_target: int
-    implementation_timeline_months: int
-    estimated_cost_usd: Dict[str, Any]
-
-
-class SpecialConsideration(BaseModel):
-    issue: str
-    solution: str
-    action: Optional[str] = None
-
-
 class CountryAnalysisResponse(BaseModel):
-    country: str
-    population: int
-    area_sq_km: float
-    population_density: float
-    tier: str
-    recommendation: AnalysisRecommendation
-    hierarchy: List[Dict[str, Any]]
-    special_considerations: List[SpecialConsideration]
+    country_id: int
+    recommendation: Dict[str, Any]
+    special_considerations: List[Dict[str, Any]]
+    estimated_cost_usd: Dict[str, Any]
 
 
 class ZoneCreate(BaseModel):
     name: str
-    region_code: str
-    district_code: str
-    center_lat: float
-    center_lng: float
-    boundary_geojson: Optional[Dict[str, Any]] = None
-    population: Optional[int] = None
-    landmarks: Optional[List[Dict[str, Any]]] = None
+    code: str
+    region_code: Optional[str] = None
+    district_code: Optional[str] = None
+    population: Optional[int] = 0
+    area_sq_km: Optional[float] = 0.0
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 
 class ZoneUpdate(BaseModel):
     name: Optional[str] = None
     population: Optional[int] = None
-    boundary_geojson: Optional[Dict[str, Any]] = None
+    area_sq_km: Optional[float] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 
 class ZoneResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
-    postal_code: str
+    code: str
     name: str
-    region_name: Optional[str] = None
-    district_name: Optional[str] = None
-    center_lat: float
-    center_lng: float
-    area_sq_km: Optional[float] = None
+    region_code: Optional[str] = None
+    district_code: Optional[str] = None
     population: Optional[int] = None
-    landmarks: Optional[List[Dict[str, Any]]] = None
-    boundary_geojson: Optional[Dict[str, Any]] = None
-    status: str = "active"
-
-
-class LookupByCoordinates(BaseModel):
-    lat: float
-    lng: float
+    area_sq_km: Optional[float] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 
 class LookupResult(BaseModel):
-    found: bool
-    postal_code: Optional[str] = None
-    zone_name: Optional[str] = None
-    district: Optional[str] = None
-    region: Optional[str] = None
-    nearby_landmarks: Optional[List[Dict[str, Any]]] = None
-    full_address_suggestion: Optional[str] = None
-    nearest_code: Optional[str] = None
-    message: Optional[str] = None
-
-
-class SearchQuery(BaseModel):
-    query: str
+    postal_code: str
+    location_name: str
+    lat: float
+    lng: float
     country: str
+    zone_id: int
 
 
 class SearchResult(BaseModel):
-    zone_results: List[Dict[str, Any]] = []
-    landmark_results: List[Dict[str, Any]] = []
+    query: str
+    results: List[LookupResult]
 
 
 class USSDRequest(BaseModel):
-    session_id: str
-    phone_number: str
-    text: str = ""
-    service_code: str
+    phone: str
+    session_id: Optional[str] = None
+    text: Optional[str] = ""
 
 
 class USSDResponse(BaseModel):
-    response: str
-    type: str
+    session_id: str
+    text: str
+    response_type: str
 
 
 class PolicyDocumentResponse(BaseModel):
-    policy_document: str
-    implementation_guide: str
+    country_id: int
+    title: str
+    content: str
+    sections: List[Dict[str, Any]]

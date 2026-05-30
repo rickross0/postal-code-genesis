@@ -180,6 +180,99 @@ class ZoneCreationEngine:
                 zone["name"] = f"Zone {zone['id']}"
         return zones
 
+    def create_zones_in_district(
+        self,
+        district_boundary: Polygon,
+        capital_point: Point,
+        target_population_per_zone: int = 5000,
+        estimated_population: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Create zones inside a district boundary, starting from the capital city."""
+        if district_boundary is None or district_boundary.is_empty:
+            raise ValueError("Invalid district boundary")
+
+        n_zones = max(1, estimated_population // target_population_per_zone) if estimated_population else 4
+
+        # Generate seed points inside the district
+        # Capital is always zone 1 center
+        seed_points = [[capital_point.x, capital_point.y]]
+
+        # Additional points: spread outward from capital within district
+        import math
+        bounds = district_boundary.bounds
+        for i in range(1, n_zones):
+            angle = (2 * math.pi * i) / n_zones
+            # Spiral outward
+            radius_deg = 0.02 * (1 + i * 0.3)
+            px = capital_point.x + radius_deg * math.cos(angle)
+            py = capital_point.y + radius_deg * math.sin(angle)
+            pt = Point(px, py)
+            if district_boundary.contains(pt):
+                seed_points.append([px, py])
+            else:
+                # Fallback: random point inside district
+                for _ in range(50):
+                    rx = bounds[0] + (bounds[2] - bounds[0]) * (i / n_zones)
+                    ry = bounds[1] + (bounds[3] - bounds[1]) * ((i * 0.618) % 1)
+                    rpt = Point(rx, ry)
+                    if district_boundary.contains(rpt):
+                        seed_points.append([rx, ry])
+                        break
+
+        if len(seed_points) < 2:
+            return self._create_grid_zones(district_boundary, n_zones)
+
+        try:
+            import numpy as np
+            from scipy.spatial import Voronoi
+        except ImportError:
+            return self._create_grid_zones(district_boundary, n_zones)
+
+        points_arr = np.array(seed_points)
+        if len(points_arr) < 4:
+            return self._create_grid_zones(district_boundary, n_zones)
+
+        vor = Voronoi(points_arr)
+        zones = []
+        for i in range(len(points_arr)):
+            region_idx = vor.point_region[i]
+            vertices = vor.regions[region_idx]
+            if -1 in vertices or len(vertices) == 0:
+                continue
+            poly_points = [vor.vertices[v] for v in vertices]
+            try:
+                zone_polygon = Polygon(poly_points)
+                zone_polygon = zone_polygon.intersection(district_boundary)
+                if zone_polygon.is_empty or zone_polygon.area < 1e-12:
+                    continue
+                zones.append({
+                    "id": i + 1,
+                    "center": {"lng": float(points_arr[i][0]), "lat": float(points_arr[i][1])},
+                    "boundary_geojson": shapely_mapping(zone_polygon) if hasattr(zone_polygon, "__geo_interface__") else None,
+                    "area_sq_km": self._calc_area_sq_km(zone_polygon),
+                    "landmarks": [],
+                    "name": None,
+                    "postal_code": None,
+                })
+            except Exception:
+                continue
+
+        if not zones:
+            return self._create_grid_zones(district_boundary, n_zones)
+
+        # Ensure capital city is zone 1
+        zones_sorted = sorted(zones, key=lambda z: (z["center"]["lat"] - capital_point.y) ** 2 + (z["center"]["lng"] - capital_point.x) ** 2)
+        capital_zone = zones_sorted[0]
+        capital_zone["name"] = f"{country.name} Capital Central" if 'country' in dir() else "Capital Central"
+        capital_zone["id"] = 1
+        other_zones = [z for z in zones if z is not capital_zone]
+        for idx, z in enumerate(other_zones, start=2):
+            z["id"] = idx
+        zones = [capital_zone] + other_zones
+
+        zones = self._name_zones(zones)
+        return zones
+
     @staticmethod
     def _geojson_to_polygon(geojson: Dict[str, Any]) -> Optional[Polygon]:
         """Convert GeoJSON to Shapely Polygon."""

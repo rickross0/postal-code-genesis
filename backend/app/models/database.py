@@ -28,6 +28,9 @@ class Country(Base):
     mobile_penetration = Column(Float, default=0.0)
     internet_penetration = Column(Float, default=0.0)
     existing_admin_divisions = Column(Text, default="{}")  # JSON object
+    capital_city = Column(String(255), nullable=True)
+    capital_lat = Column(Float, nullable=True)
+    capital_lng = Column(Float, nullable=True)
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now())
     updated_at = Column(DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())

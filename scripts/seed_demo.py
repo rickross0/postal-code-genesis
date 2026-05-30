@@ -36,6 +36,9 @@ async def seed():
             literacy_rate=0.34,
             mobile_penetration=0.33,
             internet_penetration=0.08,
+            capital_city="Juba",
+            capital_lat=4.85,
+            capital_lng=31.6,
         )
         session.add(country)
         await session.flush()
@@ -76,9 +79,18 @@ async def seed():
 
         districts = []
         for name, code, lat, lng in districts_data:
+            delta = 0.15
+            boundary = Polygon([
+                (lng - delta, lat - delta),
+                (lng + delta, lat - delta),
+                (lng + delta, lat + delta),
+                (lng - delta, lat + delta),
+                (lng - delta, lat - delta),
+            ])
             d = District(
                 region_id=regions[0].id, name=name, code=code,
                 center_point=from_shape(Point(lng, lat), srid=4326),
+                boundary=from_shape(boundary, srid=4326),
             )
             session.add(d)
             await session.flush()

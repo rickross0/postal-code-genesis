@@ -29,6 +29,9 @@ class CountryProfileCreate(BaseModel):
     literacy_rate: float = 0.0
     mobile_penetration: float = 0.0
     internet_penetration: float = 0.0
+    capital_city: Optional[str] = None
+    capital_lat: Optional[float] = None
+    capital_lng: Optional[float] = None
 
 
 class CountryProfileResponse(BaseModel):
@@ -44,6 +47,9 @@ class CountryProfileResponse(BaseModel):
     urban_percentage: float
     literacy_rate: float
     mobile_penetration: float
+    capital_city: Optional[str] = None
+    capital_lat: Optional[float] = None
+    capital_lng: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 

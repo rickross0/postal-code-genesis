@@ -69,6 +69,9 @@ export default function CountryWizard({ onCountryCreated }) {
     try {
       const payload = {
         ...form,
+        capital_city: form.capital_city || undefined,
+        capital_lat: form.capital_lat ? parseFloat(form.capital_lat) : undefined,
+        capital_lng: form.capital_lng ? parseFloat(form.capital_lng) : undefined,
         estimated_population: parseInt(form.estimated_population),
         area_sq_km: parseFloat(form.area_sq_km),
         num_regions: parseInt(form.num_regions),
@@ -168,6 +171,23 @@ export default function CountryWizard({ onCountryCreated }) {
             <div style={styles.formGroup}>
               <label style={styles.label}>Number of Districts</label>
               <input style={styles.input} name="num_districts" value={form.num_districts} onChange={handleChange} placeholder="79" />
+            </div>
+          </div>
+        </div>
+        <div style={styles.row}>
+          <div style={styles.half}>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Capital City</label>
+              <input style={styles.input} name="capital_city" value={form.capital_city} onChange={handleChange} placeholder="e.g. Juba" />
+            </div>
+          </div>
+          <div style={styles.half}>
+            <div style={styles.formGroup}>
+              <label style={styles.label}>Capital Coordinates (lat, lng)</label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input style={{ ...styles.input, flex: 1 }} name="capital_lat" value={form.capital_lat} onChange={handleChange} placeholder="4.85" />
+                <input style={{ ...styles.input, flex: 1 }} name="capital_lng" value={form.capital_lng} onChange={handleChange} placeholder="31.6" />
+              </div>
             </div>
           </div>
         </div>

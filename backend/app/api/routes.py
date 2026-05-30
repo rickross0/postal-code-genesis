@@ -1,3 +1,4 @@
+import logging
 import json
 """FastAPI route definitions for the Postal Code Genesis Platform."""
 
@@ -37,6 +38,8 @@ async def create_country(
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new country profile and begin postal code system design."""
+    logger = logging.getLogger(__name__)
+    logger.info(f"CREATE COUNTRY payload: {profile.model_dump()}")
     country = Country(
         name=profile.name,
         iso_code=profile.iso_code.upper(),

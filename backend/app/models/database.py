@@ -3,7 +3,7 @@
 from sqlalchemy import Column, Integer, String, Float, Boolean, Text, ForeignKey, DateTime, Enum as SAEnum
 from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
-from datetime import datetime, timezone
+from datetime import datetime
 
 from app.core.database import Base
 
@@ -29,8 +29,8 @@ class Country(Base):
     internet_penetration = Column(Float, default=0.0)
     existing_admin_divisions = Column(Text, default="{}")  # JSON object
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now())
+    updated_at = Column(DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
 
     regions = relationship("Region", back_populates="country", cascade="all, delete-orphan")
 
@@ -45,7 +45,7 @@ class Region(Base):
     local_name = Column(String(255), nullable=True)
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=True)
     center_point = Column(Geometry("POINT", srid=4326), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now())
 
     country = relationship("Country", back_populates="regions")
     districts = relationship("District", back_populates="region", cascade="all, delete-orphan")
@@ -61,7 +61,7 @@ class District(Base):
     local_name = Column(String(255), nullable=True)
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=True)
     center_point = Column(Geometry("POINT", srid=4326), nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now())
 
     region = relationship("Region", back_populates="districts")
     postal_zones = relationship("PostalZone", back_populates="district", cascade="all, delete-orphan")
@@ -80,8 +80,8 @@ class PostalZone(Base):
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=True)
     center_point = Column(Geometry("POINT", srid=4326), nullable=True)
     area_sq_km = Column(Float, nullable=True)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now())
+    updated_at = Column(DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
 
     district = relationship("District", back_populates="postal_zones")
     landmarks_rel = relationship("Landmark", back_populates="postal_zone", cascade="all, delete-orphan")
@@ -97,6 +97,6 @@ class Landmark(Base):
     location = Column(Geometry("POINT", srid=4326), nullable=True)
     description = Column(Text, nullable=True)
     is_well_known = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, default=lambda: datetime.now())
 
     postal_zone = relationship("PostalZone", back_populates="landmarks_rel")

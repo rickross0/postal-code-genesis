@@ -14,7 +14,7 @@ services:
       - key: POSTGRES_PASSWORD
         generate: true
 
-  # ── Combined Backend + Frontend (single web service) ──
+  # ── Combined Backend + Frontend ──
   - type: web
     name: postal-genesis
     runtime: docker
@@ -45,5 +45,3 @@ services:
         sync: false
       - key: DEBUG
         value: "false"
-    dependsOn:
-      - postal-genesis-db

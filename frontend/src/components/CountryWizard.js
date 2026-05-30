@@ -84,6 +84,8 @@ export default function CountryWizard({ onCountryCreated }) {
           capital_lat: data.capital_lat != null ? String(data.capital_lat) : prev.capital_lat,
           capital_lng: data.capital_lng != null ? String(data.capital_lng) : prev.capital_lng,
           languages: data.languages?.join(', ') || prev.languages,
+          num_regions: data.num_regions ? String(data.num_regions) : (prev.num_regions || '10'),
+          num_districts: data.num_districts ? String(data.num_districts) : (prev.num_districts || '10'),
         }));
         // If capital city exists, try to refine its coordinates
         if (data.capital_city) {
@@ -109,6 +111,21 @@ export default function CountryWizard({ onCountryCreated }) {
   };
 
   const handleCreate = async () => {
+    const errors = [];
+    if (!form.name.trim()) errors.push("Country Name is required");
+    if (!form.iso_code.trim()) errors.push("ISO Code is required (2-3 letters, e.g. SSD)");
+    if (form.iso_code.trim().length < 2) errors.push("ISO Code must be at least 2 characters");
+    if (!form.estimated_population || isNaN(parseInt(form.estimated_population))) errors.push("Population is required");
+    if (!form.area_sq_km || isNaN(parseFloat(form.area_sq_km))) errors.push("Area is required");
+    if (!form.num_regions || isNaN(parseInt(form.num_regions))) errors.push("Number of Regions is required");
+    if (!form.num_districts || isNaN(parseInt(form.num_districts))) errors.push("Number of Districts is required");
+    if (errors.length > 0) {
+      alert("Please fix the following:
+
+" + errors.join("
+"));
+      return;
+    }
     setLoading(true);
     try {
       const payload = {
@@ -136,7 +153,19 @@ export default function CountryWizard({ onCountryCreated }) {
       setCreatedCountry(res.data);
       setStep(2);
     } catch (err) {
-      alert('Error creating country: ' + (err.response?.data?.detail || err.message));
+      let msg = 'Error creating country: ';
+      if (err.response?.data?.detail) {
+        const detail = err.response.data.detail;
+        if (Array.isArray(detail)) {
+          msg += detail.map(d => `${d.loc?.join('.') || 'field'}: ${d.msg}`).join('
+');
+        } else {
+          msg += JSON.stringify(detail);
+        }
+      } else {
+        msg += err.message;
+      }
+      alert(msg);
     }
     setLoading(false);
   };
@@ -192,7 +221,7 @@ export default function CountryWizard({ onCountryCreated }) {
           <div style={styles.half}>
             <div style={styles.formGroup}>
               <label style={styles.label}>ISO Code</label>
-              <input style={styles.input} name="iso_code" value={form.iso_code} onChange={handleChange} placeholder="e.g. SSD" maxLength={3} />
+              <input style={styles.input} name="iso_code" value={form.iso_code} onChange={handleChange} placeholder="e.g. SSD (required)" maxLength={3} />
             </div>
           </div>
         </div>
@@ -206,13 +235,13 @@ export default function CountryWizard({ onCountryCreated }) {
           <div style={styles.half}>
             <div style={styles.formGroup}>
               <label style={styles.label}>Estimated Population</label>
-              <input style={styles.input} name="estimated_population" value={form.estimated_population} onChange={handleChange} placeholder="11000000" />
+              <input style={styles.input} name="estimated_population" value={form.estimated_population} onChange={handleChange} placeholder="11000000 (required)" />
             </div>
           </div>
           <div style={styles.half}>
             <div style={styles.formGroup}>
               <label style={styles.label}>Area (km²)</label>
-              <input style={styles.input} name="area_sq_km" value={form.area_sq_km} onChange={handleChange} placeholder="619745" />
+              <input style={styles.input} name="area_sq_km" value={form.area_sq_km} onChange={handleChange} placeholder="619745 (required)" />
             </div>
           </div>
         </div>
@@ -220,13 +249,13 @@ export default function CountryWizard({ onCountryCreated }) {
           <div style={styles.half}>
             <div style={styles.formGroup}>
               <label style={styles.label}>Number of Regions</label>
-              <input style={styles.input} name="num_regions" value={form.num_regions} onChange={handleChange} placeholder="10" />
+              <input style={styles.input} name="num_regions" value={form.num_regions} onChange={handleChange} placeholder="10 (required)" />
             </div>
           </div>
           <div style={styles.half}>
             <div style={styles.formGroup}>
               <label style={styles.label}>Number of Districts</label>
-              <input style={styles.input} name="num_districts" value={form.num_districts} onChange={handleChange} placeholder="79" />
+              <input style={styles.input} name="num_districts" value={form.num_districts} onChange={handleChange} placeholder="79 (required)" />
             </div>
           </div>
         </div>

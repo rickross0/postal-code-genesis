@@ -130,6 +130,7 @@ export default function CountryWizard({ onCountryCreated }) {
         capital_city: form.capital_city || null,
         capital_lat: form.capital_lat ? parseFloat(form.capital_lat) : null,
         capital_lng: form.capital_lng ? parseFloat(form.capital_lng) : null,
+        existing_admin_divisions: {},
       };
       const res = await createCountry(payload);
       setCreatedCountry(res.data);

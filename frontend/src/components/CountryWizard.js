@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { createCountry, analyzeCountry, autoCreateZones } from '../services/api';
+import { createCountry, analyzeCountry, autoCreateZones, lookupCountry, lookupCity } from '../services/api';
 
 const styles = {
   container: { padding: '30px', maxWidth: '800px', margin: '0 auto' },
@@ -62,6 +62,49 @@ export default function CountryWizard({ onCountryCreated }) {
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+  };
+
+  const handleLookup = async () => {
+    if (!form.name.trim()) {
+      alert("Enter a country name first");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await lookupCountry(form.name);
+      const data = res.data;
+      if (data.population) {
+        setForm((prev) => ({
+          ...prev,
+          iso_code: data.iso_code || prev.iso_code,
+          estimated_population: String(data.population || prev.estimated_population),
+          area_sq_km: data.area_sq_km ? String(Math.round(data.area_sq_km)) : prev.area_sq_km,
+          capital_city: data.capital_city || prev.capital_city,
+          capital_lat: data.capital_lat != null ? String(data.capital_lat) : prev.capital_lat,
+          capital_lng: data.capital_lng != null ? String(data.capital_lng) : prev.capital_lng,
+          languages: data.languages?.join(', ') || prev.languages,
+        }));
+        // If capital city exists, try to refine its coordinates
+        if (data.capital_city) {
+          try {
+            const cityRes = await lookupCity(data.capital_city, data.iso_code_2);
+            const c = cityRes.data;
+            if (c.lat != null && c.lng != null) {
+              setForm((prev) => ({
+                ...prev,
+                capital_lat: String(c.lat),
+                capital_lng: String(c.lng),
+              }));
+            }
+          } catch (_) { /* ignore city lookup failure */ }
+        }
+      } else {
+        alert("No data found for "" + form.name + """);
+      }
+    } catch (err) {
+      alert("Lookup failed: " + (err.response?.data?.detail || err.message));
+    }
+    setLoading(false);
   };
 
   const handleCreate = async () => {
@@ -130,7 +173,12 @@ export default function CountryWizard({ onCountryCreated }) {
           <div style={styles.half}>
             <div style={styles.formGroup}>
               <label style={styles.label}>Country Name</label>
-              <input style={styles.input} name="name" value={form.name} onChange={handleChange} placeholder="e.g. South Sudan" />
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input style={{ ...styles.input, flex: 1 }} name="name" value={form.name} onChange={handleChange} placeholder="e.g. South Sudan" />
+                <button style={{ ...styles.btnSecondary, whiteSpace: 'nowrap' }} onClick={handleLookup} disabled={loading}>
+                  {loading ? 'Looking up…' : '🔍 Look Up'}
+                </button>
+              </div>
             </div>
           </div>
           <div style={styles.half}>

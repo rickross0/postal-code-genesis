@@ -3,7 +3,7 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from app.core.database import get_db
 from app.models.schemas import (
@@ -23,6 +23,7 @@ from app.services.country_setup_wizard import PostalSystemDesigner
 from app.services.zone_creation_engine import ZoneCreationEngine
 from app.services.policy_generator import PolicyDocumentGenerator
 from app.services.public_lookup import LookupService
+from app.services.country_lookup import CountryLookupService
 from app.models.database import Country, Region, District, PostalZone, Landmark
 
 router = APIRouter()
@@ -525,6 +526,28 @@ async def export_report(
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename={country.iso_code}_postal_zones.pdf"}
     )
+
+
+# ── Country Lookup ─────────────────────────────────────────
+
+@router.get("/countries/lookup/{name}")
+async def lookup_country_by_name(name: str):
+    """Look up a country by name and return real-world metadata."""
+    service = CountryLookupService()
+    result = await service.lookup_country(name)
+    if not result:
+        raise HTTPException(404, f"Country '{name}' not found in global databases")
+    return result
+
+
+@router.get("/cities/lookup")
+async def lookup_city(query: str, country_code: Optional[str] = None):
+    """Look up a city by name and return coordinates."""
+    service = CountryLookupService()
+    result = await service.lookup_city(query, country_code)
+    if not result:
+        raise HTTPException(404, f"City '{query}' not found")
+    return result
 
 
 # ── Lookup ────────────────────────────────────────────────

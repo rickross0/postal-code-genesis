@@ -29,6 +29,8 @@ export const lookupByName = (query, country) => api.get(`/lookup/search?query=${
 export const ussdLookup = (data) => api.post('/lookup/ussd', data);
 
 export const listDistricts = (countryId) => api.get(`/countries/${countryId}/districts`);
+export const lookupCountry = (name) => api.get(`/countries/lookup/${encodeURIComponent(name)}`);
+export const lookupCity = (query, countryCode) => api.get(`/cities/lookup?query=${encodeURIComponent(query)}${countryCode ? '&country_code=' + countryCode : ''}`);
 export const updateZone = (zoneId, data) => api.put(`/zones/${zoneId}`, data);
 
 export default api;

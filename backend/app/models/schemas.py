@@ -16,10 +16,10 @@ class CountryProfileCreate(BaseModel):
     name: str
     iso_code: str = Field(min_length=2, max_length=3)
     tier: CountryTier
-    estimated_population: int = Field(gt=0)
-    area_sq_km: float = Field(gt=0)
-    num_regions: int = Field(gt=0)
-    num_districts: int = Field(gt=0)
+    estimated_population: int = Field(ge=0)
+    area_sq_km: float = Field(ge=0)
+    num_regions: int = Field(ge=0)
+    num_districts: int = Field(ge=0)
     languages: List[str] = []
     existing_admin_divisions: Dict[str, int] = {}
     has_street_names: bool = False

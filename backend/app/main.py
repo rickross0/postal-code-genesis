@@ -7,10 +7,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from contextlib import asynccontextmanager
+import logging
 
 from app.core.config import settings
 from app.core.database import init_db
 from app.api.routes import router
+
+logger = logging.getLogger(__name__)
 
 # Frontend static files directory (populated in Docker build)
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -18,6 +21,10 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    logger.info(f"Static dir exists: {STATIC_DIR.exists()}")
+    logger.info(f"index.html exists: {(STATIC_DIR / 'index.html').exists() if STATIC_DIR.exists() else 'N/A'}")
+    logger.info(f"DB_HOST: {settings.db_host or '(empty)'}")
+    logger.info(f"DB_URL starts with: {settings.get_async_url()[:30]}...")
     await init_db()
     yield
 
@@ -60,7 +67,10 @@ if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
 
     @app.get("/favicon.ico")
     async def favicon():
-        return FileResponse(str(STATIC_DIR / "favicon.ico"), status_code=404)
+        fav = STATIC_DIR / "favicon.ico"
+        if fav.exists():
+            return FileResponse(str(fav))
+        return FileResponse(str(STATIC_DIR / "index.html"), status_code=404)
 
     # Serve JS/CSS assets from /static (React build output)
     static_assets = STATIC_DIR / "static"
@@ -70,11 +80,9 @@ if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
     # Catch-all for SPA: serve index.html for any non-API path
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
-        # Try to serve a real file first
         file_path = STATIC_DIR / full_path
         if full_path and file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
-        # Otherwise serve SPA entry point
         return FileResponse(str(STATIC_DIR / "index.html"))
 
 

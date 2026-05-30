@@ -207,4 +207,4 @@ class ZoneCreationEngine:
             minx, miny, maxx, maxy = polygon.bounds
             dx_km = (maxx - minx) * 111.32 * math.cos(math.radians((miny + maxy) / 2))
             dy_km = (maxy - miny) * 111.32
-            return dx_km * dy_km * 0.5
+            return dx_km * dy_km

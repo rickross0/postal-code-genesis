@@ -40,6 +40,7 @@ async def init_db():
         async with engine.begin() as conn:
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
             await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis_topology"))
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database initialized successfully")
     except Exception as e:

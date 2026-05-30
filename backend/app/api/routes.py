@@ -1,3 +1,4 @@
+import json
 """FastAPI route definitions for the Postal Code Genesis Platform."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -42,7 +43,7 @@ async def create_country(
         area_sq_km=profile.area_sq_km,
         num_regions=profile.num_regions,
         num_districts=profile.num_districts,
-        languages=str(profile.languages),
+        languages=json.dumps(profile.languages),
         has_street_names=profile.has_street_names,
         has_house_numbers=profile.has_house_numbers,
         has_any_addressing=profile.has_any_addressing,
@@ -50,7 +51,7 @@ async def create_country(
         literacy_rate=profile.literacy_rate,
         mobile_penetration=profile.mobile_penetration,
         internet_penetration=profile.internet_penetration,
-        existing_admin_divisions=str(profile.existing_admin_divisions),
+        existing_admin_divisions=json.dumps(profile.existing_admin_divisions),
     )
     db.add(country)
     await db.flush()
@@ -82,7 +83,7 @@ async def list_countries(db: AsyncSession = Depends(get_db)):
             id=c.id, name=c.name, iso_code=c.iso_code, tier=c.tier,
             estimated_population=c.estimated_population, area_sq_km=c.area_sq_km,
             num_regions=c.num_regions, num_districts=c.num_districts,
-            languages=eval(c.languages) if c.languages else [],
+            languages=json.loads(c.languages) if c.languages else [],
             urban_percentage=c.urban_percentage, literacy_rate=c.literacy_rate,
             mobile_penetration=c.mobile_penetration,
         )
@@ -109,7 +110,7 @@ async def analyze_country(country_id: int, db: AsyncSession = Depends(get_db)):
         area_sq_km=country.area_sq_km,
         num_regions=country.num_regions,
         num_districts=country.num_districts,
-        languages=eval(country.languages) if country.languages else [],
+        languages=json.loads(country.languages) if country.languages else [],
         has_street_names=country.has_street_names,
         has_house_numbers=country.has_house_numbers,
         urban_percentage=country.urban_percentage,
@@ -318,7 +319,7 @@ async def generate_policy(country_id: int, db: AsyncSession = Depends(get_db)):
         name=country.name, iso_code=country.iso_code, tier=country.tier,
         estimated_population=country.estimated_population, area_sq_km=country.area_sq_km,
         num_regions=country.num_regions, num_districts=country.num_districts,
-        languages=eval(country.languages) if country.languages else [],
+        languages=json.loads(country.languages) if country.languages else [],
         has_street_names=country.has_street_names, urban_percentage=country.urban_percentage,
         literacy_rate=country.literacy_rate, mobile_penetration=country.mobile_penetration,
     )

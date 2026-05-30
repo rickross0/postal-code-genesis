@@ -13,6 +13,10 @@ services:
         value: postgres
       - key: POSTGRES_PASSWORD
         sync: false
+    disk:
+      name: postgres-data
+      mountPath: /var/lib/postgresql/data
+      sizeGB: 1
 
   # ── Combined Backend + Frontend ──
   - type: web
@@ -21,25 +25,11 @@ services:
     dockerfilePath: ./Dockerfile.render
     plan: starter
     envVars:
-      - key: DB_HOST
+      - key: DATABASE_URL
         fromService:
           name: postal-genesis-db
           type: pserv
-          property: host
-      - key: DB_PORT
-        fromService:
-          name: postal-genesis-db
-          type: pserv
-          property: port
-      - key: DB_USER
-        value: postgres
-      - key: DB_PASSWORD
-        fromService:
-          name: postal-genesis-db
-          type: pserv
-          property: password
-      - key: DB_NAME
-        value: postal_genesis
+          property: connectionString
       - key: GOOGLE_MAPS_API_KEY
         sync: false
       - key: DEBUG

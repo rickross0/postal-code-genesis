@@ -132,19 +132,47 @@ class ZoneCreationEngine:
                 zone_id += 1
         return zones
 
+    @staticmethod
+    def _calculate_compass_direction(center_lat: float, center_lng: float,
+                                     zone_lat: float, zone_lng: float) -> str:
+        """Return compass direction (N, NE, E, SE, S, SW, W, NW) from center to zone."""
+        import math
+        lat1 = math.radians(center_lat)
+        lat2 = math.radians(zone_lat)
+        dlon = math.radians(zone_lng - center_lng)
+        x = math.sin(dlon) * math.cos(lat2)
+        y = (math.cos(lat1) * math.sin(lat2) -
+             math.sin(lat1) * math.cos(lat2) * math.cos(dlon))
+        bearing = (math.degrees(math.atan2(x, y)) + 360) % 360
+        dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+        idx = round(bearing / 45) % 8
+        return dirs[idx]
+
     def assign_codes(
         self,
         zones: List[Dict[str, Any]],
-        region_code: str,
-        district_code: str,
+        district_name: str,
+        district_center: Optional[Dict[str, float]] = None,
         start_from: int = 1,
         reserve_percentage: float = 0.3,
     ) -> List[Dict[str, Any]]:
-        """Assign postal codes with room for future growth."""
-        zones_sorted = sorted(
-            zones,
-            key=lambda z: (-z["center"]["lat"], z["center"]["lng"]),
-        )
+        """Assign postal codes: first 2 letters = district name, middle = number, last = compass direction."""
+        prefix = (district_name[:2] if district_name else "ZZ").upper()
+        dc_lat = district_center.get("lat") if district_center else None
+        dc_lng = district_center.get("lng") if district_center else None
+
+        # Sort by distance from district center (capital-first)
+        if dc_lat is not None and dc_lng is not None:
+            zones_sorted = sorted(
+                zones,
+                key=lambda z: ((z["center"]["lat"] - dc_lat) ** 2 + (z["center"]["lng"] - dc_lng) ** 2),
+            )
+        else:
+            zones_sorted = sorted(
+                zones,
+                key=lambda z: (-z["center"]["lat"], z["center"]["lng"]),
+            )
+
         max_code = 99
         available = max_code - start_from + 1
         usable = int(available * (1 - reserve_percentage))
@@ -153,8 +181,15 @@ class ZoneCreationEngine:
         current_code = start_from
         for zone in zones_sorted:
             zone_code = f"{current_code:02d}"
-            zone["postal_code"] = f"{region_code}-{district_code}-{zone_code}"
-            zone["code_numeric"] = f"{region_code}{district_code}{zone_code}"
+            if dc_lat is not None and dc_lng is not None:
+                direction = self._calculate_compass_direction(
+                    dc_lat, dc_lng,
+                    zone["center"]["lat"], zone["center"]["lng"]
+                )
+            else:
+                direction = "N"
+            zone["postal_code"] = f"{prefix}{zone_code}{direction}"
+            zone["code_numeric"] = f"{prefix}{zone_code}{direction}"
             current_code += spacing
         return zones_sorted
 

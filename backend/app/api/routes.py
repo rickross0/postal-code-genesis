@@ -206,7 +206,8 @@ async def auto_create_zones(
         target_population_per_zone=target_population,
         estimated_population=target_population * 4,
     )
-    zones = engine.assign_codes(zones, region_code, district_code)
+    dc = {"lat": country.capital_lat, "lng": country.capital_lng}
+    zones = engine.assign_codes(zones, district.name, dc)
 
     created_zones = []
     for z in zones:

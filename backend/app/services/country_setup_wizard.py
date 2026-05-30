@@ -67,28 +67,28 @@ class PostalSystemDesigner:
     def _design_code_format(self, length: int) -> CodeFormatResponse:
         formats = {
             4: CodeFormatResponse(
-                pattern="RRZZ", display="RR-ZZ",
-                breakdown={"RR": "Region (01-99)", "ZZ": "Zone (01-99)"},
+                pattern="CC##D", display="CC##D",
+                breakdown={"CC": "City prefix (first 2 letters)", "##": "Zone number (01-99)", "D": "Direction from city center (N, NE, E, SE, S, SW, W, NW)"},
                 max_regions=99, max_districts_per_region=0,
-                max_zones_per_district=99, total_capacity=9801, example="01-01",
+                max_zones_per_district=99, total_capacity=9801, example="JU01N",
             ),
             5: CodeFormatResponse(
-                pattern="RRDZZ", display="RR-DZZ",
-                breakdown={"RR": "Region (01-99)", "D": "District (1-9)", "ZZ": "Zone (01-99)"},
+                pattern="CC##D", display="CC##D",
+                breakdown={"CC": "City prefix (first 2 letters)", "##": "Zone number (01-99)", "D": "Direction from city center (N, NE, E, SE, S, SW, W, NW)"},
                 max_regions=99, max_districts_per_region=9,
-                max_zones_per_district=99, total_capacity=88209, example="01-101",
+                max_zones_per_district=99, total_capacity=88209, example="JU01N",
             ),
             6: CodeFormatResponse(
-                pattern="RRDDZZ", display="RR-DD-ZZ",
-                breakdown={"RR": "Region (01-99)", "DD": "District (01-99)", "ZZ": "Zone (01-99)"},
+                pattern="CC##D", display="CC##D",
+                breakdown={"CC": "City prefix (first 2 letters)", "##": "Zone number (01-99)", "D": "Direction from city center (N, NE, E, SE, S, SW, W, NW)"},
                 max_regions=99, max_districts_per_region=99,
-                max_zones_per_district=99, total_capacity=970299, example="01-01-01",
+                max_zones_per_district=99, total_capacity=970299, example="JU01N",
             ),
             7: CodeFormatResponse(
-                pattern="RRDDZZZ", display="RR-DD-ZZZ",
-                breakdown={"RR": "Region (01-99)", "DD": "District (01-99)", "ZZZ": "Zone (001-999)"},
+                pattern="CC##D", display="CC##D",
+                breakdown={"CC": "City prefix (first 2 letters)", "##": "Zone number (01-99)", "D": "Direction from city center (N, NE, E, SE, S, SW, W, NW)"},
                 max_regions=99, max_districts_per_region=99,
-                max_zones_per_district=999, total_capacity=9702099, example="01-01-001",
+                max_zones_per_district=999, total_capacity=9702099, example="JU01N",
             ),
         }
         return formats.get(length, formats[6])

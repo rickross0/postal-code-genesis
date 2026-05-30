@@ -98,18 +98,18 @@ async def seed():
 
         # Postal Zones for Juba County
         zones_data = [
-            ("Juba Central Market Area", "01-01-01", 4.850, 31.580, 12000, 5.2),
-            ("Juba University Area", "01-01-02", 4.840, 31.600, 8000, 4.1),
-            ("Juba Airport Area", "01-01-03", 4.870, 31.610, 6000, 3.8),
-            ("Juba Hai Malakal Area", "01-01-04", 4.860, 31.570, 9000, 4.5),
-            ("Juba Gudele Area", "01-01-05", 4.830, 31.550, 11000, 6.2),
-            ("Juba Munuki Area", "01-01-06", 4.820, 31.620, 7500, 5.0),
-            ("Juba Lologo Area", "01-01-07", 4.810, 31.560, 5000, 3.5),
-            ("Juba Custom Market Area", "01-01-08", 4.855, 31.590, 7000, 2.8),
-            ("Juba Kator Area", "01-01-09", 4.845, 31.565, 8500, 3.2),
-            ("Juba Atlabara Area", "01-01-10", 4.865, 31.595, 6500, 4.0),
-            ("Juba Jebel Area", "01-01-11", 4.835, 31.545, 4500, 5.5),
-            ("Juba News Area", "01-01-12", 4.825, 31.610, 5500, 3.8),
+            ("Juba Central Market Area", "JU01N", 4.850, 31.580, 12000, 5.2),
+            ("Juba University Area", "JU02E", 4.840, 31.600, 8000, 4.1),
+            ("Juba Airport Area", "JU03NE", 4.870, 31.610, 6000, 3.8),
+            ("Juba Hai Malakal Area", "JU04NW", 4.860, 31.570, 9000, 4.5),
+            ("Juba Gudele Area", "JU05SW", 4.830, 31.550, 11000, 6.2),
+            ("Juba Munuki Area", "JU06SE", 4.820, 31.620, 7500, 5.0),
+            ("Juba Lologo Area", "JU07S", 4.810, 31.560, 5000, 3.5),
+            ("Juba Custom Market Area", "JU08N", 4.855, 31.590, 7000, 2.8),
+            ("Juba Kator Area", "JU09W", 4.845, 31.565, 8500, 3.2),
+            ("Juba Atlabara Area", "JU10NE", 4.865, 31.595, 6500, 4.0),
+            ("Juba Jebel Area", "JU11SW", 4.835, 31.545, 4500, 5.5),
+            ("Juba News Area", "JU12E", 4.825, 31.610, 5500, 3.8),
         ]
 
         zones = []

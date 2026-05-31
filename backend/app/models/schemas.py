@@ -142,14 +142,16 @@ class ZoneResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     id: int
-    code: str
+    postal_code: str
     name: str
-    region_code: Optional[str] = None
-    district_code: Optional[str] = None
-    population: Optional[int] = None
+    center_lat: Optional[float] = None
+    center_lng: Optional[float] = None
     area_sq_km: Optional[float] = None
-    lat: Optional[float] = None
-    lng: Optional[float] = None
+    population: Optional[int] = None
+    status: Optional[str] = None
+    region_name: Optional[str] = None
+    district_name: Optional[str] = None
+    boundary_geojson: Optional[Any] = None
 
 
 class LookupResult(BaseModel):

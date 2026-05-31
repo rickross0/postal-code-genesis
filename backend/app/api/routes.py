@@ -37,9 +37,56 @@ async def create_country(
     profile: CountryProfileCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new country profile and begin postal code system design."""
+    """Create a new country profile or return existing one if iso_code matches."""
+    from sqlalchemy import select
     logger = logging.getLogger(__name__)
     logger.info(f"CREATE COUNTRY payload: {profile.model_dump()}")
+    # Check if country with this iso_code already exists
+    existing = await db.execute(
+        select(Country).where(Country.iso_code == profile.iso_code.upper())
+    )
+    existing_country = existing.scalar_one_or_none()
+    if existing_country:
+        # Update existing country with new data
+        existing_country.name = profile.name
+        existing_country.tier = profile.tier.value if hasattr(profile.tier, "value") else str(profile.tier)
+        existing_country.estimated_population = profile.estimated_population
+        existing_country.area_sq_km = profile.area_sq_km
+        existing_country.num_regions = profile.num_regions
+        existing_country.num_districts = profile.num_districts
+        existing_country.languages = json.dumps(profile.languages)
+        existing_country.has_street_names = profile.has_street_names
+        existing_country.has_house_numbers = profile.has_house_numbers
+        existing_country.has_any_addressing = profile.has_any_addressing
+        existing_country.urban_percentage = profile.urban_percentage
+        existing_country.literacy_rate = profile.literacy_rate
+        existing_country.mobile_penetration = profile.mobile_penetration
+        existing_country.internet_penetration = profile.internet_penetration
+        existing_country.existing_admin_divisions = json.dumps(profile.existing_admin_divisions)
+        if profile.capital_city:
+            existing_country.capital_city = profile.capital_city
+        if profile.capital_lat is not None:
+            existing_country.capital_lat = profile.capital_lat
+        if profile.capital_lng is not None:
+            existing_country.capital_lng = profile.capital_lng
+        await db.flush()
+        return CountryProfileResponse(
+            id=existing_country.id,
+            name=existing_country.name,
+            iso_code=existing_country.iso_code,
+            tier=existing_country.tier,
+            estimated_population=existing_country.estimated_population,
+            area_sq_km=existing_country.area_sq_km,
+            num_regions=existing_country.num_regions,
+            num_districts=existing_country.num_districts,
+            languages=profile.languages,
+            urban_percentage=existing_country.urban_percentage,
+            literacy_rate=existing_country.literacy_rate,
+            mobile_penetration=existing_country.mobile_penetration,
+            capital_city=existing_country.capital_city,
+            capital_lat=existing_country.capital_lat,
+            capital_lng=existing_country.capital_lng,
+        )
     country = Country(
         name=profile.name,
         iso_code=profile.iso_code.upper(),

@@ -75,25 +75,32 @@ async def _check_connection():
 
 
 async def init_db():
-    """Initialize database, enable PostGIS, and auto-migrate missing columns."""
+    """Initialize database, enable PostGIS, create tables, and auto-migrate."""
     connected = await _check_connection()
     if not connected:
         logger.warning("Skipping database init — connection failed (see errors above)")
         return
 
-    try:
-        from sqlalchemy import text
-        async with engine.begin() as conn:
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis_topology"))
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-            await conn.run_sync(Base.metadata.create_all)
+    import asyncio
+    for attempt in range(3):
+        try:
+            from sqlalchemy import text
+            async with engine.begin() as conn:
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis_topology"))
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                await conn.run_sync(Base.metadata.create_all)
 
-            # Auto-migrate: add columns that exist in the model but not in the DB
-            await _add_column_if_missing(conn, "countries", "capital_city", "VARCHAR(255)")
-            await _add_column_if_missing(conn, "countries", "capital_lat", "FLOAT")
-            await _add_column_if_missing(conn, "countries", "capital_lng", "FLOAT")
+                # Auto-migrate: add columns that exist in the model but not in the DB
+                await _add_column_if_missing(conn, "countries", "capital_city", "VARCHAR(255)")
+                await _add_column_if_missing(conn, "countries", "capital_lat", "FLOAT")
+                await _add_column_if_missing(conn, "countries", "capital_lng", "FLOAT")
 
-        logger.info("Database initialized successfully")
-    except Exception as e:
-        logger.warning(f"Database init failed (app will start anyway): {e}")
+            logger.info("Database initialized successfully")
+            return
+        except Exception as e:
+            logger.error(f"Database init attempt {attempt + 1}/3 failed: {e}")
+            if attempt < 2:
+                await asyncio.sleep(2)
+            else:
+                logger.error("All database init attempts failed — tables may not exist")

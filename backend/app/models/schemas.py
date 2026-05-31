@@ -136,6 +136,8 @@ class ZoneUpdate(BaseModel):
     area_sq_km: Optional[float] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
+    boundary_geojson: Optional[Any] = None
+    status: Optional[str] = None
 
 
 class ZoneResponse(BaseModel):

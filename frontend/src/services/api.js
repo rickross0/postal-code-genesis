@@ -31,6 +31,9 @@ export const ussdLookup = (data) => api.post('/lookup/ussd', data);
 export const listDistricts = (countryId) => api.get(`/countries/${countryId}/districts`);
 export const lookupCountry = (name) => api.get(`/countries/lookup/${encodeURIComponent(name)}`);
 export const lookupCity = (query, countryCode) => api.get(`/cities/lookup?query=${encodeURIComponent(query)}${countryCode ? '&country_code=' + countryCode : ''}`);
+export const autoCreateAllZones = (countryId, targetPop = 5000) =>
+  api.post(`/countries/${countryId}/zones/auto-create-all?target_population=${targetPop}`);
+
 export const updateZone = (zoneId, data) => api.put(`/zones/${zoneId}`, data);
 
 export default api;

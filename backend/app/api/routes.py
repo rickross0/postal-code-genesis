@@ -242,6 +242,145 @@ async def auto_create_zones(
     return created_zones
 
 
+@router.post("/countries/{country_id}/zones/auto-create-all", response_model=List[ZoneResponse])
+async def auto_create_all_zones(
+    country_id: int,
+    target_population: int = Query(5000, description="Target population per zone"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Auto-generate postal zones for ALL districts in a country, using their admin boundaries."""
+    from sqlalchemy import select, text
+    from geoalchemy2.shape import from_shape, to_shape
+    from shapely.geometry import Point, shape, box, mapping as shapely_mapping
+    import math
+
+    # Get country
+    country_res = await db.execute(select(Country).where(Country.id == country_id))
+    country = country_res.scalar_one_or_none()
+    if not country:
+        raise HTTPException(404, "Country not found")
+
+    # Get all regions and districts
+    region_res = await db.execute(select(Region).where(Region.country_id == country_id))
+    regions = region_res.scalars().all()
+
+    if not regions:
+        # Create default regions and districts from country data
+        for ri in range(1, max(country.num_regions, 1) + 1):
+            rcode = f"{ri:02d}"
+            region = Region(
+                country_id=country_id,
+                name=f"Region {rcode}",
+                code=rcode,
+                center_point=from_shape(
+                    Point(country.capital_lng or 31.6, country.capital_lat or 4.85), srid=4326
+                ) if country.capital_lat else None,
+            )
+            db.add(region)
+            await db.flush()
+
+            for di in range(1, max(country.num_districts // max(country.num_regions, 1), 1) + 1):
+                dcode = f"{di:02d}"
+                district = District(
+                    region_id=region.id,
+                    name=f"District {rcode}{dcode}",
+                    code=f"{rcode}{dcode}",
+                    center_point=from_shape(
+                        Point(country.capital_lng or 31.6, country.capital_lat or 4.85), srid=4326
+                    ) if country.capital_lat else None,
+                )
+                db.add(district)
+        await db.flush()
+
+        # Reload regions and districts
+        region_res = await db.execute(select(Region).where(Region.country_id == country_id))
+        regions = region_res.scalars().all()
+
+    # Delete existing zones for this country
+    await db.execute(text("""
+        DELETE FROM postal_zones WHERE district_id IN (
+            SELECT d.id FROM districts d JOIN regions r ON d.region_id = r.id WHERE r.country_id = :cid
+        )
+    """), {"cid": country_id})
+
+    engine = ZoneCreationEngine()
+    all_zones = []
+
+    for region in regions:
+        # Load districts for this region
+        dist_res = await db.execute(select(District).where(District.region_id == region.id))
+        districts = dist_res.scalars().all()
+
+        for district in districts:
+            # Get or derive district boundary
+            district_boundary = None
+            if district.boundary is not None:
+                try:
+                    district_boundary = to_shape(district.boundary)
+                except Exception:
+                    pass
+
+            if district_boundary is None:
+                # Derive from capital + area
+                cap_lng = country.capital_lng or 31.6
+                cap_lat = country.capital_lat or 4.85
+                side_km = max(5, (country.area_sq_km / max(country.num_districts, 1)) ** 0.5)
+                delta_deg = side_km / 111.0
+                district_boundary = box(
+                    cap_lng - delta_deg, cap_lat - delta_deg,
+                    cap_lng + delta_deg, cap_lat + delta_deg
+                )
+
+            cap_point = Point(
+                country.capital_lng or district_boundary.centroid.x,
+                country.capital_lat or district_boundary.centroid.y,
+            )
+
+            try:
+                zones = engine.create_zones_in_district(
+                    district_boundary=district_boundary,
+                    capital_point=cap_point,
+                    target_population_per_zone=target_population,
+                    estimated_population=target_population * 4,
+                )
+            except Exception:
+                continue
+
+            dc = {"lat": cap_point.y, "lng": cap_point.x}
+            zones = engine.assign_codes(zones, district.name, dc)
+
+            for z in zones:
+                boundary_shape = shape(z.get("boundary_geojson", {})) if z.get("boundary_geojson") else None
+                zone_db = PostalZone(
+                    district_id=district.id,
+                    postal_code=z["postal_code"],
+                    code_numeric=z.get("code_numeric"),
+                    name=z.get("name") or f"Zone {z['id']}",
+                    population=z.get("population"),
+                    center_point=from_shape(Point(z["center"]["lng"], z["center"]["lat"]), srid=4326) if z.get("center") else None,
+                    boundary=from_shape(boundary_shape, srid=4326) if boundary_shape else None,
+                    area_sq_km=z.get("area_sq_km"),
+                )
+                db.add(zone_db)
+                await db.flush()
+                await db.refresh(zone_db)
+                all_zones.append(ZoneResponse(
+                    id=zone_db.id,
+                    postal_code=zone_db.postal_code,
+                    name=zone_db.name,
+                    center_lat=z["center"]["lat"],
+                    center_lng=z["center"]["lng"],
+                    area_sq_km=z.get("area_sq_km"),
+                    population=z.get("population"),
+                    status=zone_db.status,
+                    region_name=region.name,
+                    district_name=district.name,
+                    boundary_geojson=z.get("boundary_geojson"),
+                ))
+
+    return all_zones
+
+
 @router.get("/countries/{country_id}/zones", response_model=List[ZoneResponse])
 async def list_zones(
     country_id: int,

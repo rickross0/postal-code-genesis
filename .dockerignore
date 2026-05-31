@@ -6,6 +6,8 @@ __pycache__
 *.pyc
 venv
 .env
+**/*.env
+*.env
 pgdata
 docker-compose.yml
 docker/

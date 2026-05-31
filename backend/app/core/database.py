@@ -45,8 +45,42 @@ async def _add_column_if_missing(conn, table, column, col_type):
         logger.info(f"Added column {table}.{column}")
 
 
+async def _check_connection():
+    """Test database connectivity and log clear diagnostics on failure."""
+    from sqlalchemy import text
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        logger.info("Database connection verified")
+        return True
+    except Exception as e:
+        error_msg = str(e)
+        if "password authentication failed" in error_msg.lower() or "InvalidPassword" in error_msg:
+            logger.error(
+                "DATABASE AUTH FAILED: The DB_PASSWORD does not match POSTGRES_PASSWORD. "
+                "In the Render dashboard, make sure the DB_PASSWORD env var on the web service "
+                "matches the POSTGRES_PASSWORD env var on the postal-genesis-db service."
+            )
+        elif "connection refused" in error_msg.lower() or "could not connect" in error_msg.lower():
+            logger.error(
+                "DATABASE CONNECTION REFUSED: Cannot reach the database host. "
+                "Verify DB_HOST and DB_PORT are set correctly."
+            )
+        else:
+            logger.error(f"DATABASE CONNECTION ERROR: {e}")
+        logger.error(f"  db_host={settings.db_host!r} db_port={settings.db_port!r} db_user={settings.db_user!r} db_name={settings.db_name!r}")
+        logger.error(f"  db_password is {'SET' if settings.db_password else 'NOT SET (empty)'}")
+        logger.error(f"  database_url is {'SET' if settings.database_url else 'NOT SET'}")
+        return False
+
+
 async def init_db():
     """Initialize database, enable PostGIS, and auto-migrate missing columns."""
+    connected = await _check_connection()
+    if not connected:
+        logger.warning("Skipping database init — connection failed (see errors above)")
+        return
+
     try:
         from sqlalchemy import text
         async with engine.begin() as conn:

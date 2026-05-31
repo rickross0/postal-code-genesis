@@ -1,4 +1,5 @@
 """Application configuration using pydantic-settings."""
+from urllib.parse import quote_plus
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
@@ -32,16 +33,22 @@ class Settings(BaseSettings):
     )
 
     def _build_url(self, driver: str) -> str:
-        """Build a connection URL from parts or convert an existing one."""
-        url = self.database_url
-
-        if not url and self.db_host:
+        """Build a connection URL from parts or convert an existing one.
+        
+        Priority: DB_* env vars > DATABASE_URL > fallback localhost.
+        On Render, DB_HOST is set via fromService, so it always wins over
+        any DATABASE_URL that might leak in from a .env file.
+        """
+        if self.db_host:
+            # Individual DB_* parts take priority (e.g. on Render)
+            encoded_password = quote_plus(self.db_password) if self.db_password else ""
             url = (
-                f"postgresql://{self.db_user}:{self.db_password}"
+                f"postgresql://{self.db_user}:{encoded_password}"
                 f"@{self.db_host}:{self.db_port}/{self.db_name}"
             )
-
-        if not url:
+        elif self.database_url:
+            url = self.database_url
+        else:
             url = "postgresql://postgres:postgres@localhost:5432/postal_genesis"
 
         # Ensure correct driver

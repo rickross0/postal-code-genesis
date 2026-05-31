@@ -11,8 +11,15 @@ services:
         value: postal_genesis
       - key: POSTGRES_USER
         value: postgres
+      # IMPORTANT: Set this in the Render dashboard (Environment > Add Secret).
+      # Use a strong password. You MUST set DB_PASSWORD on the web service
+      # below to the EXACT SAME value, or database auth will fail with 422/500 errors.
       - key: POSTGRES_PASSWORD
         sync: false
+      # trust auth for Render private network (service is not publicly accessible).
+      # Remove this line if you want strict password auth after verifying the setup works.
+      - key: POSTGRES_HOST_AUTH_METHOD
+        value: trust
 
   # ── Combined Backend + Frontend ──
   - type: web
@@ -33,6 +40,10 @@ services:
           property: port
       - key: DB_USER
         value: postgres
+      # IMPORTANT: Must match POSTGRES_PASSWORD on the postal-genesis-db service exactly.
+      # Set this in the Render dashboard (Environment > Add Secret).
+      # When POSTGRES_HOST_AUTH_METHOD=trust is set on the DB service, this value
+      # is ignored by PostgreSQL but still used to build the connection URL in the app.
       - key: DB_PASSWORD
         sync: false
       - key: DB_NAME

@@ -131,8 +131,13 @@ async def create_country(
 async def list_countries(db: AsyncSession = Depends(get_db)):
     """List all countries in the platform."""
     from sqlalchemy import select
-    result = await db.execute(select(Country).order_by(Country.name))
-    countries = result.scalars().all()
+    try:
+        result = await db.execute(select(Country).order_by(Country.name))
+        countries = result.scalars().all()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to query countries: {e}")
+        raise HTTPException(503, f"Database not ready: {e}")
     return [
         CountryProfileResponse(
             id=c.id, name=c.name, iso_code=c.iso_code, tier=c.tier,

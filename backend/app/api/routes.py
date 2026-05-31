@@ -246,6 +246,9 @@ async def auto_create_zones(
         delta_deg = side_km / 111.0
         district_boundary = box(cap_lng - delta_deg, cap_lat - delta_deg, cap_lng + delta_deg, cap_lat + delta_deg)
 
+    # Delete existing zones for this district to avoid duplicate postal_code errors
+    await db.execute(text("DELETE FROM postal_zones WHERE district_id = :did"), {"did": district.id})
+
     # Generate zones inside this district boundary, starting from capital
     cap_point = Point(country.capital_lng or district_boundary.centroid.x, country.capital_lat or district_boundary.centroid.y)
 

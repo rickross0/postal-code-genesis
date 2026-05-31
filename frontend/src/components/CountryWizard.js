@@ -102,7 +102,7 @@ export default function CountryWizard({ onCountryCreated }) {
           } catch (_) { /* ignore city lookup failure */ }
         }
       } else {
-        alert("No data found for "" + form.name + """);
+        alert("No data found for \"" + form.name + "\"");
       }
     } catch (err) {
       alert("Lookup failed: " + (err.response?.data?.detail || err.message));
@@ -120,10 +120,7 @@ export default function CountryWizard({ onCountryCreated }) {
     if (!form.num_regions || isNaN(parseInt(form.num_regions))) errors.push("Number of Regions is required");
     if (!form.num_districts || isNaN(parseInt(form.num_districts))) errors.push("Number of Districts is required");
     if (errors.length > 0) {
-      alert("Please fix the following:
-
-" + errors.join("
-"));
+      alert("Please fix the following:\n\n" + errors.join("\n"));
       return;
     }
     setLoading(true);
@@ -157,8 +154,7 @@ export default function CountryWizard({ onCountryCreated }) {
       if (err.response?.data?.detail) {
         const detail = err.response.data.detail;
         if (Array.isArray(detail)) {
-          msg += detail.map(d => `${d.loc?.join('.') || 'field'}: ${d.msg}`).join('
-');
+          msg += detail.map(d => `${d.loc?.join('.') || 'field'}: ${d.msg}`).join("\n");
         } else {
           msg += JSON.stringify(detail);
         }

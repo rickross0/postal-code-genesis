@@ -91,11 +91,32 @@ class CodeFormatResponse(BaseModel):
     example: str
 
 
-class CountryAnalysisResponse(BaseModel):
-    country_id: int
-    recommendation: Dict[str, Any]
-    special_considerations: List[Dict[str, Any]]
+
+class AnalysisRecommendation(BaseModel):
+    code_length: int
+    code_format: CodeFormatResponse
+    hierarchy_levels: int
+    estimated_total_zones: int
+    people_per_zone_target: int
+    implementation_timeline_months: int
     estimated_cost_usd: Dict[str, Any]
+
+
+class SpecialConsideration(BaseModel):
+    issue: str
+    solution: str
+    action: str
+
+
+class CountryAnalysisResponse(BaseModel):
+    country: str
+    population: int
+    area_sq_km: float
+    population_density: float
+    tier: str
+    recommendation: AnalysisRecommendation
+    hierarchy: List[Dict[str, Any]]
+    special_considerations: List[SpecialConsideration]
 
 
 class ZoneCreate(BaseModel):

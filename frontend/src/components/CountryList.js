@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { listCountries } from '../services/api';
+import { listCountries, deleteCountry } from '../services/api';
 
 const styles = {
   container: { padding: '30px', maxWidth: '800px', margin: '0 auto' },
@@ -8,6 +8,7 @@ const styles = {
   card: {
     background: '#fff', borderRadius: '12px', padding: '20px', marginBottom: '12px',
     border: '1px solid #e8e8f0', cursor: 'pointer', transition: 'box-shadow 0.2s',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
   },
   name: { fontSize: '18px', fontWeight: 600, color: '#1a1a2e' },
   iso: { fontSize: '12px', color: '#999', marginLeft: '8px' },
@@ -16,6 +17,11 @@ const styles = {
     fontSize: '11px', fontWeight: 600, marginTop: '6px',
   },
   details: { fontSize: '13px', color: '#666', marginTop: '8px' },
+  deleteBtn: {
+    background: '#fff0f0', color: '#c62828', border: '1px solid #ffcdd2',
+    borderRadius: '8px', padding: '6px 12px', fontSize: '12px', fontWeight: 600,
+    cursor: 'pointer', marginLeft: '12px', flexShrink: 0,
+  },
 };
 
 const TIER_COLORS = {
@@ -32,16 +38,36 @@ const TIER_LABELS = {
   conflict_post_conflict: 'Tier 4 — Post-Conflict',
 };
 
-export default function CountryList({ onSelect }) {
+export default function CountryList({ onSelect, onCountryDeleted }) {
   const [countries, setCountries] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const refresh = () => {
+    setLoading(true);
     listCountries()
       .then((res) => setCountries(res.data))
       .catch((err) => console.error(err))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    refresh();
   }, []);
+
+  const handleDelete = async (e, country) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete "${country.name}" and all of its postal data? This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deleteCountry(country.id);
+      refresh();
+      if (onCountryDeleted) onCountryDeleted();
+    } catch (err) {
+      console.error('Failed to delete country', err);
+      alert('Failed to delete country. Please try again.');
+    }
+  };
 
   return (
     <div style={styles.container}>
@@ -57,17 +83,26 @@ export default function CountryList({ onSelect }) {
           const tierStyle = TIER_COLORS[c.tier] || TIER_COLORS.mixed_rural_urban;
           return (
             <div key={c.id} style={styles.card} onClick={() => onSelect(c)}>
-              <span style={styles.name}>{c.name}</span>
-              <span style={styles.iso}>({c.iso_code})</span>
               <div>
-                <span style={{ ...styles.tier, background: tierStyle.bg, color: tierStyle.color }}>
-                  {TIER_LABELS[c.tier] || c.tier}
-                </span>
+                <span style={styles.name}>{c.name}</span>
+                <span style={styles.iso}>({c.iso_code})</span>
+                <div>
+                  <span style={{ ...styles.tier, background: tierStyle.bg, color: tierStyle.color }}>
+                    {TIER_LABELS[c.tier] || c.tier}
+                  </span>
+                </div>
+                <div style={styles.details}>
+                  Population: {c.estimated_population.toLocaleString()} · Area: {c.area_sq_km.toLocaleString()} km² ·
+                  Regions: {c.num_regions} · Districts: {c.num_districts}
+                </div>
               </div>
-              <div style={styles.details}>
-                Population: {c.estimated_population.toLocaleString()} · Area: {c.area_sq_km.toLocaleString()} km² ·
-                Regions: {c.num_regions} · Districts: {c.num_districts}
-              </div>
+              <button
+                style={styles.deleteBtn}
+                onClick={(e) => handleDelete(e, c)}
+                title="Delete country"
+              >
+                🗑 Delete
+              </button>
             </div>
           );
         })

@@ -166,6 +166,19 @@ async def list_countries(db: AsyncSession = Depends(get_db)):
     ]
 
 
+@router.delete("/countries/{country_id}", status_code=204)
+async def delete_country(country_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete a country and all associated data (cascades to regions, districts, zones, landmarks)."""
+    from sqlalchemy import select
+    result = await db.execute(select(Country).where(Country.id == country_id))
+    country = result.scalar_one_or_none()
+    if not country:
+        raise HTTPException(404, "Country not found")
+    await db.delete(country)
+    await db.flush()
+    return None
+
+
 # ── Analysis ─────────────────────────────────────────────
 
 @router.post("/countries/{country_id}/analyze", response_model=CountryAnalysisResponse)

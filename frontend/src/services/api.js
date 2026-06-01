@@ -5,6 +5,7 @@ const api = axios.create({ baseURL: API_BASE, timeout: 30000 });
 // Countries
 export const createCountry = (data) => api.post('/countries', data);
 export const listCountries = () => api.get('/countries');
+export const deleteCountry = (id) => api.delete(`/countries/${id}`);
 export const analyzeCountry = (id) => api.post(`/countries/${id}/analyze`);
 export const getCountryStats = (id) => api.get(`/countries/${id}/stats`);
 export const generatePolicy = (id) => api.post(`/countries/${id}/policy`);

@@ -50,7 +50,7 @@ export default function App() {
       case 'wizard':
         return <CountryWizard onCountryCreated={refreshCountries} />;
       case 'countries':
-        return <CountryList onSelect={handleSelectCountry} />;
+        return <CountryList onSelect={handleSelectCountry} onCountryDeleted={refreshCountries} />;
       case 'map':
         return <ZoneMap selectedCountry={selectedCountry} />;
       case 'lookup':

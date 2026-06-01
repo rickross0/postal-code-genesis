@@ -1520,3 +1520,212 @@ async def country_stats(country_id: int, db: AsyncSession = Depends(get_db)):
     """), {"cid": country_id})
     row = result.mappings().first()
     return dict(row) if row else {"total_zones": 0, "total_regions": 0, "total_districts": 0, "total_landmarks": 0}
+
+
+# ── Drawing Snapshots ────────────────────────────────────
+
+@router.post("/countries/{country_id}/snapshots")
+async def save_snapshot(
+    country_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Save a snapshot of current regions, districts, and zones for a country."""
+    from sqlalchemy import select, text
+    from geoalchemy2.shape import to_shape
+    import json
+
+    # Get regions with boundaries
+    reg_res = await db.execute(text("""
+        SELECT id, name, code, locked,
+               ST_AsGeoJSON(boundary) AS boundary_geojson,
+               ST_AsGeoJSON(center_point) AS center_geojson
+        FROM regions WHERE country_id = :cid
+    """), {"cid": country_id})
+    regions = []
+    for r in reg_res.mappings().all():
+        regions.append({
+            "id": r["id"], "name": r["name"], "code": r["code"], "locked": bool(r["locked"]),
+            "boundary_geojson": json.loads(r["boundary_geojson"]) if r["boundary_geojson"] else None,
+            "center_geojson": json.loads(r["center_geojson"]) if r["center_geojson"] else None,
+        })
+
+    # Get districts with boundaries
+    dist_res = await db.execute(text("""
+        SELECT d.id, d.name, d.code, d.region_id, d.locked,
+               ST_AsGeoJSON(d.boundary) AS boundary_geojson,
+               ST_AsGeoJSON(d.center_point) AS center_geojson
+        FROM districts d
+        JOIN regions r ON d.region_id = r.id
+        WHERE r.country_id = :cid
+    """), {"cid": country_id})
+    districts = []
+    for d in dist_res.mappings().all():
+        districts.append({
+            "id": d["id"], "name": d["name"], "code": d["code"],
+            "region_id": d["region_id"], "locked": bool(d["locked"]),
+            "boundary_geojson": json.loads(d["boundary_geojson"]) if d["boundary_geojson"] else None,
+            "center_geojson": json.loads(d["center_geojson"]) if d["center_geojson"] else None,
+        })
+
+    # Get zones with boundaries
+    zone_res = await db.execute(text("""
+        SELECT pz.id, pz.postal_code, pz.name, pz.status, pz.population, pz.area_sq_km, pz.color, pz.locked,
+               d.id AS district_id,
+               ST_AsGeoJSON(pz.boundary) AS boundary_geojson,
+               ST_AsGeoJSON(pz.center_point) AS center_geojson
+        FROM postal_zones pz
+        JOIN districts d ON pz.district_id = d.id
+        JOIN regions r ON d.region_id = r.id
+        WHERE r.country_id = :cid
+    """), {"cid": country_id})
+    zones = []
+    for z in zone_res.mappings().all():
+        zones.append({
+            "id": z["id"], "postal_code": z["postal_code"], "name": z["name"],
+            "status": z["status"], "population": z["population"], "area_sq_km": z["area_sq_km"],
+            "color": z["color"], "locked": bool(z["locked"]), "district_id": z["district_id"],
+            "boundary_geojson": json.loads(z["boundary_geojson"]) if z["boundary_geojson"] else None,
+            "center_geojson": json.loads(z["center_geojson"]) if z["center_geojson"] else None,
+        })
+
+    snapshot = json.dumps({"regions": regions, "districts": districts, "zones": zones})
+
+    from app.models.database import DrawingSnapshot
+    snap = DrawingSnapshot(country_id=country_id, snapshot=snapshot)
+    db.add(snap)
+    await db.flush()
+    await db.refresh(snap)
+    return {"id": snap.id, "country_id": country_id, "created_at": str(snap.created_at), "regions": len(regions), "districts": len(districts), "zones": len(zones)}
+
+
+@router.get("/countries/{country_id}/snapshots")
+async def list_snapshots(
+    country_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """List all saved snapshots for a country."""
+    from sqlalchemy import select, text
+    from app.models.database import DrawingSnapshot
+    result = await db.execute(
+        select(DrawingSnapshot).where(DrawingSnapshot.country_id == country_id).order_by(DrawingSnapshot.created_at.desc())
+    )
+    snaps = result.scalars().all()
+    return [{"id": s.id, "country_id": s.country_id, "created_at": str(s.created_at)} for s in snaps]
+
+
+@router.post("/countries/{country_id}/snapshots/{snapshot_id}/restore")
+async def restore_snapshot(
+    country_id: int,
+    snapshot_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Restore a snapshot: replace all regions, districts, and zones with the saved state."""
+    from sqlalchemy import select, text
+    from geoalchemy2.shape import from_shape
+    from shapely.geometry import shape
+    import json
+    from app.models.database import DrawingSnapshot, Region, District, PostalZone
+
+    snap_res = await db.execute(select(DrawingSnapshot).where(DrawingSnapshot.id == snapshot_id, DrawingSnapshot.country_id == country_id))
+    snap = snap_res.scalar_one_or_none()
+    if not snap:
+        raise HTTPException(404, "Snapshot not found")
+
+    data = json.loads(snap.snapshot)
+
+    # Delete current regions (cascades to districts and zones)
+    await db.execute(text("DELETE FROM regions WHERE country_id = :cid"), {"cid": country_id})
+
+    # Restore regions
+    region_id_map = {}  # old_id -> new_id
+    for r in data.get("regions", []):
+        reg = Region(
+            country_id=country_id,
+            name=r["name"],
+            code=r["code"],
+            locked=r.get("locked", False),
+        )
+        if r.get("boundary_geojson"):
+            try:
+                geom = shape(r["boundary_geojson"])
+                if not geom.is_valid:
+                    geom = geom.buffer(0)
+                reg.boundary = from_shape(geom, srid=4326)
+            except Exception:
+                pass
+        if r.get("center_geojson"):
+            try:
+                geom = shape(r["center_geojson"])
+                reg.center_point = from_shape(geom, srid=4326)
+            except Exception:
+                pass
+        db.add(reg)
+        await db.flush()
+        await db.refresh(reg)
+        region_id_map[r["id"]] = reg.id
+
+    # Restore districts
+    district_id_map = {}  # old_id -> new_id
+    for d in data.get("districts", []):
+        new_region_id = region_id_map.get(d["region_id"])
+        if not new_region_id:
+            continue
+        dist = District(
+            region_id=new_region_id,
+            name=d["name"],
+            code=d["code"],
+            locked=d.get("locked", False),
+        )
+        if d.get("boundary_geojson"):
+            try:
+                geom = shape(d["boundary_geojson"])
+                if not geom.is_valid:
+                    geom = geom.buffer(0)
+                dist.boundary = from_shape(geom, srid=4326)
+            except Exception:
+                pass
+        if d.get("center_geojson"):
+            try:
+                geom = shape(d["center_geojson"])
+                dist.center_point = from_shape(geom, srid=4326)
+            except Exception:
+                pass
+        db.add(dist)
+        await db.flush()
+        await db.refresh(dist)
+        district_id_map[d["id"]] = dist.id
+
+    # Restore zones
+    for z in data.get("zones", []):
+        new_district_id = district_id_map.get(z["district_id"])
+        if not new_district_id:
+            continue
+        zone = PostalZone(
+            district_id=new_district_id,
+            postal_code=z["postal_code"],
+            name=z["name"],
+            status=z.get("status", "active"),
+            population=z.get("population"),
+            area_sq_km=z.get("area_sq_km"),
+            color=z.get("color"),
+            locked=z.get("locked", False),
+        )
+        if z.get("boundary_geojson"):
+            try:
+                geom = shape(z["boundary_geojson"])
+                if not geom.is_valid:
+                    geom = geom.buffer(0)
+                zone.boundary = from_shape(geom, srid=4326)
+            except Exception:
+                pass
+        if z.get("center_geojson"):
+            try:
+                geom = shape(z["center_geojson"])
+                zone.center_point = from_shape(geom, srid=4326)
+            except Exception:
+                pass
+        db.add(zone)
+        await db.flush()
+
+    await db.flush()
+    return {"detail": "Snapshot restored", "regions": len(data.get("regions", [])), "districts": len(data.get("districts", [])), "zones": len(data.get("zones", []))}

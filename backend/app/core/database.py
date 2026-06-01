@@ -100,6 +100,15 @@ async def init_db():
                 await _add_column_if_missing(conn, "districts", "locked", "BOOLEAN DEFAULT FALSE")
                 await _add_column_if_missing(conn, "postal_zones", "locked", "BOOLEAN DEFAULT FALSE")
                 await _add_column_if_missing(conn, "postal_zones", "color", "VARCHAR(7)")
+                # Auto-create drawing_snapshots table if missing
+                await conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS drawing_snapshots (
+                        id SERIAL PRIMARY KEY,
+                        country_id INTEGER NOT NULL REFERENCES countries(id) ON DELETE CASCADE,
+                        snapshot TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
 
             logger.info("Database initialized successfully")
             return

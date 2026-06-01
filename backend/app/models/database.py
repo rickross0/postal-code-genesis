@@ -108,3 +108,12 @@ class Landmark(Base):
     created_at = Column(DateTime, default=lambda: datetime.now())
 
     postal_zone = relationship("PostalZone", back_populates="landmarks_rel")
+
+
+class DrawingSnapshot(Base):
+    __tablename__ = "drawing_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    country_id = Column(Integer, ForeignKey("countries.id"), nullable=False)
+    snapshot = Column(Text, nullable=False)  # JSON: { regions: [...], districts: [...], zones: [...] }
+    created_at = Column(DateTime, default=lambda: datetime.now())

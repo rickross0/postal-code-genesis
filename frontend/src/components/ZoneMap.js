@@ -6,6 +6,7 @@ import {
   listZones, updateZone, autoCreateAllZones, createZoneManual, listDistricts,
   deleteZone, listRegions, createRegion, updateRegion, deleteRegion, autoCreateRegions, deleteAllRegions,
   createDistrict, updateDistrict, deleteDistrict, autoCreateDistricts, updateCountryBoundary,
+  saveSnapshot, listSnapshots, restoreSnapshot,
 } from '../services/api';
 
 const ZONE_COLORS = [
@@ -70,6 +71,20 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [hiddenMap, setHiddenMap] = useState({}); // { "z-1": true, "d-2": true, "r-3": true }
   const [countryHidden, setCountryHidden] = useState(false);
   const [undoableRegions, setUndoableRegions] = useState(false);
+  const [snapshots, setSnapshots] = useState([]);
+  const [showSnapshots, setShowSnapshots] = useState(false);
+
+  const loadSnapshots = useCallback(async () => {
+    if (!selectedCountry) return;
+    try {
+      const res = await listSnapshots(selectedCountry.id);
+      setSnapshots(res.data);
+    } catch (e) { console.error('loadSnapshots failed:', e); }
+  }, [selectedCountry]);
+
+  useEffect(() => {
+    loadSnapshots();
+  }, [loadSnapshots, regions.length, districts.length, zones.length]);
 
   const loadData = useCallback(async () => {
     if (!selectedCountry) return;
@@ -221,16 +236,33 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   }, [selectedCountry, loadData]);
 
   const handleAutoRegions = useCallback(async () => {
-    if (!window.confirm('Auto-generate regions for this country? This replaces all existing regions, districts, and zones.')) return;
-    try { await autoCreateRegions(selectedCountry.id); setUndoableRegions(true); await loadData(); }
+    if (!window.confirm('Auto-generate regions for this country? This replaces all existing regions, districts, and zones. A snapshot will be saved first.')) return;
+    try {
+      await saveSnapshot(selectedCountry.id);
+      await autoCreateRegions(selectedCountry.id);
+      setUndoableRegions(true);
+      await loadData();
+      await loadSnapshots();
+    }
     catch (err) { alert('Failed: ' + (err.response?.data?.detail || err.message)); }
-  }, [selectedCountry, loadData]);
+  }, [selectedCountry, loadData, loadSnapshots]);
 
   const handleUndoRegions = useCallback(async () => {
     if (!window.confirm('Undo auto-regions? This deletes ALL regions, districts, and zones for this country.')) return;
     try { await deleteAllRegions(selectedCountry.id); setUndoableRegions(false); await loadData(); }
     catch (err) { alert('Undo failed: ' + (err.response?.data?.detail || err.message)); }
   }, [selectedCountry, loadData]);
+
+  const handleSaveSnapshot = useCallback(async () => {
+    try { await saveSnapshot(selectedCountry.id); await loadSnapshots(); alert('Snapshot saved!'); }
+    catch (err) { alert('Save failed: ' + (err.response?.data?.detail || err.message)); }
+  }, [selectedCountry, loadSnapshots]);
+
+  const handleRestoreSnapshot = useCallback(async (snapshotId) => {
+    if (!window.confirm('Restore this snapshot? This replaces all current regions, districts, and zones.')) return;
+    try { await restoreSnapshot(selectedCountry.id, snapshotId); await loadData(); await loadSnapshots(); }
+    catch (err) { alert('Restore failed: ' + (err.response?.data?.detail || err.message)); }
+  }, [selectedCountry, loadData, loadSnapshots]);
 
   const handleAutoDistricts = useCallback(async (regionId) => {
     if (!window.confirm('Auto-generate districts for this region? This replaces existing districts and zones in this region.')) return;
@@ -284,6 +316,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         {Object.keys(hiddenMap).length > 0 && (
           <button style={{ ...styles.btnS, border: '1px solid #51cf66', color: '#51cf66' }} onClick={() => setHiddenMap({})}>👁️ Show All ({Object.keys(hiddenMap).length} hidden)</button>
         )}
+        <button style={{ ...styles.btnS, border: '1px solid #4363d8', color: '#4363d8' }} onClick={handleSaveSnapshot}>💾 Save Snapshot</button>
       </div>
 
       <div style={styles.mapWrap}>
@@ -552,6 +585,23 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Snapshots Panel */}
+        {snapshots.length > 0 && !drawing && (
+          <div style={{ position: 'absolute', top: 80, left: 270, background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 2px 12px rgba(0,0,0,.12)', maxWidth: 220, zIndex: 1000, fontSize: '12px', maxHeight: '40vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: '#1a1a2e' }}>📸 Snapshots</div>
+              <button style={{ background: 'none', border: 'none', fontSize: 12, cursor: 'pointer', color: '#999' }} onClick={() => setShowSnapshots(!showSnapshots)}>{showSnapshots ? '▲' : '▼'}</button>
+            </div>
+            {showSnapshots && snapshots.map((s, i) => (
+              <div key={s.id} style={{ marginBottom: 6, padding: '6px 8px', background: '#f8f9ff', borderRadius: 6, border: '1px solid #e8e8f0' }}>
+                <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>#{snapshots.length - i} — {new Date(s.created_at).toLocaleString()}</div>
+                <button style={{ ...styles.btnS, fontSize: 10, padding: '4px 8px', width: '100%' }} onClick={() => handleRestoreSnapshot(s.id)}>↩️ Revert to this</button>
+              </div>
+            ))}
+            {!showSnapshots && <div style={{ fontSize: 11, color: '#999' }}>{snapshots.length} saved — click ▼ to view</div>}
           </div>
         )}
       </div>

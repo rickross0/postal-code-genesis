@@ -350,6 +350,42 @@ export default function ZoneMap({ selectedCountry }) {
             </div>
           </div>
         )}
+
+        {selRegion && !drawing && regions.find(r => r.id === selRegion) && (
+          <div style={{ position: 'absolute', bottom: 80, left: 20, background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 6 }}>
+              🗺️ {regions.find(r => r.id === selRegion)?.name}
+              {regions.find(r => r.id === selRegion)?.locked ? ' 🔒' : ''}
+            </div>
+            <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>
+              Boundary: {regions.find(r => r.id === selRegion)?.boundary_geojson ? '✅ Yes' : '❌ None — draw one'}
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <button style={styles.btnS} onClick={() => startDraw('region', regions.find(r => r.id === selRegion))}>✏️ Edit Boundary</button>
+              <button style={styles.btnS} onClick={() => toggleLock('region', selRegion, regions.find(r => r.id === selRegion)?.locked)}>
+                {regions.find(r => r.id === selRegion)?.locked ? '🔓 Unlock' : '🔒 Lock'}
+              </button>
+              <button style={styles.btnD} onClick={() => handleDelete('region', selRegion)}>🗑</button>
+            </div>
+          </div>
+        )}
+
+        {regions.length > 0 && !drawing && (
+          <div style={{ position: 'absolute', top: 80, left: 20, background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 2px 12px rgba(0,0,0,.12)', maxWidth: 240, zIndex: 1000, fontSize: '12px', maxHeight: '40vh', overflowY: 'auto' }}>
+            <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, color: '#1a1a2e' }}>Regions</div>
+            {regions.map((r) => {
+              const color = REGION_COLORS[r.id % REGION_COLORS.length];
+              const isSel = selRegion === r.id;
+              return (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, cursor: 'pointer', background: isSel ? '#f0f0f5' : 'transparent', borderRadius: 4, padding: '2px 4px' }} onClick={() => { setSelRegion(isSel ? null : r.id); setSelDistrict(null); }}>
+                  <div style={{ width: 12, height: 12, borderRadius: 3, background: color, border: '1px solid rgba(0,0,0,.1)' }} />
+                  <span style={{ color: '#333', fontSize: 11 }}>{r.locked ? '🔒' : ''} {r.name}</span>
+                  <span style={{ color: r.boundary_geojson ? '#51cf66' : '#ff6b6b', fontSize: 9 }}>{r.boundary_geojson ? '●' : '○'}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

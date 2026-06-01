@@ -131,6 +131,7 @@ class ZoneCreate(BaseModel):
     area_sq_km: Optional[float] = 0.0
     lat: Optional[float] = None
     lng: Optional[float] = None
+    color: Optional[str] = None
     boundary_geojson: Optional[Any] = None
 
 
@@ -150,6 +151,7 @@ class ManualZoneCreate(BaseModel):
     boundary_geojson: Any  # Required: the drawn polygon
     name: Optional[str] = None
     population: Optional[int] = 0
+    color: Optional[str] = None
 
 
 class ZoneUpdate(BaseModel):
@@ -158,6 +160,7 @@ class ZoneUpdate(BaseModel):
     area_sq_km: Optional[float] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
+    color: Optional[str] = None
     boundary_geojson: Optional[Any] = None
     status: Optional[str] = None
     locked: Optional[bool] = None
@@ -176,6 +179,7 @@ class ZoneResponse(BaseModel):
     status: Optional[str] = None
     region_name: Optional[str] = None
     district_name: Optional[str] = None
+    color: Optional[str] = None
     boundary_geojson: Optional[Any] = None
     locked: bool = False
 

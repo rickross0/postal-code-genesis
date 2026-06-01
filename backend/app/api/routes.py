@@ -319,6 +319,7 @@ async def auto_create_zones(
             area_sq_km=z.get("area_sq_km"),
             population=z.get("population"),
             status=zone_db.status,
+            color=zone_db.color,
             region_name=region.name,
             district_name=district.name,
         ))
@@ -457,6 +458,7 @@ async def auto_create_all_zones(
                     area_sq_km=z.get("area_sq_km"),
                     population=z.get("population"),
                     status=zone_db.status,
+                    color=zone_db.color,
                     region_name=region.name,
                     district_name=district.name,
                     boundary_geojson=z.get("boundary_geojson"),
@@ -579,6 +581,7 @@ async def create_zone_manual(
         boundary=from_shape(boundary_geom, srid=4326),
         center_point=from_shape(boundary_geom.centroid, srid=4326),
         area_sq_km=area_sq_km,
+        color=zone_data.color,
     )
     db.add(zone)
     await db.flush()
@@ -586,7 +589,7 @@ async def create_zone_manual(
 
     # Fetch full zone data for response
     fresh = await db.execute(text("""
-        SELECT pz.id, pz.postal_code, pz.name, pz.status,
+        SELECT pz.id, pz.postal_code, pz.name, pz.status, pz.color,
                ST_Y(pz.center_point) AS center_lat,
                ST_X(pz.center_point) AS center_lng,
                pz.area_sq_km, pz.population,
@@ -607,6 +610,7 @@ async def create_zone_manual(
         area_sq_km=row["area_sq_km"], population=row["population"],
         region_name=row["region_name"], district_name=row["district_name"],
         status=row["status"],
+        color=row["color"],
         boundary_geojson=json.loads(row["boundary_geojson"]) if row["boundary_geojson"] else None,
     )
 
@@ -620,7 +624,7 @@ async def list_zones(
     from sqlalchemy import text
     result = await db.execute(text("""
         SELECT
-            pz.id, pz.postal_code, pz.name, pz.status,
+            pz.id, pz.postal_code, pz.name, pz.status, pz.color,
             ST_Y(pz.center_point) AS center_lat,
             ST_X(pz.center_point) AS center_lng,
             pz.area_sq_km, pz.population,
@@ -643,6 +647,7 @@ async def list_zones(
             area_sq_km=r["area_sq_km"], population=r["population"],
             region_name=r["region_name"], district_name=r["district_name"],
             status=r["status"],
+            color=r["color"],
             locked=bool(r.get("zone_locked", False)),
             boundary_geojson=json.loads(r["boundary_geojson"]) if r["boundary_geojson"] else None,
         )
@@ -880,7 +885,16 @@ async def update_country_boundary(
         except Exception as e:
             raise HTTPException(400, f"Invalid boundary: {e}")
     await db.flush()
-    return {"id": country.id, "name": country.name, "locked": country.locked}
+    # Fetch fresh boundary for response
+    from sqlalchemy import text
+    bres = await db.execute(text("SELECT ST_AsGeoJSON(boundary) AS bg FROM countries WHERE id = :cid"), {"cid": country_id})
+    brow = bres.mappings().first()
+    return {
+        "id": country.id,
+        "name": country.name,
+        "locked": country.locked,
+        "boundary_geojson": json.loads(brow["bg"]) if brow and brow["bg"] else None,
+    }
 
 
 # ── Zone Update ───────────────────────────────────────────
@@ -909,6 +923,8 @@ async def update_zone(
         zone.population = zone_update.population
     if zone_update.locked is not None:
         zone.locked = zone_update.locked
+    if zone_update.color is not None:
+        zone.color = zone_update.color
     if zone_update.boundary_geojson is not None:
         try:
             geom = shape(zone_update.boundary_geojson)
@@ -929,7 +945,7 @@ async def update_zone(
     await db.flush()
 
     fresh = await db.execute(text("""
-        SELECT pz.id, pz.postal_code, pz.name, pz.status,
+        SELECT pz.id, pz.postal_code, pz.name, pz.status, pz.color,
                ST_Y(pz.center_point) AS center_lat,
                ST_X(pz.center_point) AS center_lng,
                pz.area_sq_km, pz.population,
@@ -950,6 +966,7 @@ async def update_zone(
         area_sq_km=row["area_sq_km"], population=row["population"],
         region_name=row["region_name"], district_name=row["district_name"],
         status=row["status"],
+        color=row["color"],
         boundary_geojson=json.loads(row["boundary_geojson"]) if row["boundary_geojson"] else None,
     )
 

@@ -52,7 +52,7 @@ export default function App() {
       case 'countries':
         return <CountryList onSelect={handleSelectCountry} onCountryDeleted={refreshCountries} />;
       case 'map':
-        return <ZoneMap selectedCountry={selectedCountry} />;
+        return <ZoneMap selectedCountry={selectedCountry} onCountryUpdated={refreshCountries} />;
       case 'lookup':
         return <LookupPanel />;
       case 'policy':

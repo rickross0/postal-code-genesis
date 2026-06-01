@@ -15,6 +15,8 @@ const ZONE_COLORS = [
   '#aaffc3','#808000','#ffd8b1','#000075','#a9a9a9',
 ];
 
+const getZoneColor = (zone) => zone?.color || ZONE_COLORS[(zone?.id || 0) % ZONE_COLORS.length];
+
 const REGION_COLORS = ['#6c63ff','#ff6b6b','#51cf66','#ffd43b','#339af0','#f06595'];
 
 const styles = {
@@ -49,7 +51,7 @@ function FitBounds({ zones, cid }) {
 
 function ClickH({ onClick }) { useMapEvents({ click: onClick }); return null; }
 
-export default function ZoneMap({ selectedCountry }) {
+export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [zones, setZones] = useState([]);
   const [districts, setDistricts] = useState([]);
   const [regions, setRegions] = useState([]);
@@ -125,6 +127,7 @@ export default function ZoneMap({ selectedCountry }) {
         }
       } else if (drawTarget === 'country') {
         await updateCountryBoundary(selectedCountry.id, { boundary_geojson: geojson });
+        if (onCountryUpdated) onCountryUpdated();
       }
 
       setDrawing(false); setDrawPoints([]); setEditItem(null); setDrawTarget(null);
@@ -155,6 +158,14 @@ export default function ZoneMap({ selectedCountry }) {
       setSelectedZone(null);
       await loadData();
     } catch (err) { alert('Delete failed: ' + (err.response?.data?.detail || err.message)); }
+  }, [loadData]);
+
+  const handleColorChange = useCallback(async (zoneId, color) => {
+    try {
+      await updateZone(zoneId, { color });
+      await loadData();
+      setSelectedZone(prev => prev ? { ...prev, color } : null);
+    } catch (err) { alert('Color update failed: ' + (err.response?.data?.detail || err.message)); }
   }, [loadData]);
 
   const handleAutoGen = useCallback(async () => {
@@ -190,7 +201,7 @@ export default function ZoneMap({ selectedCountry }) {
           <ClickH onClick={onMapClick} />
 
           {selectedCountry?.boundary_geojson && (
-            <GeoJSON key={`country-${selectedCountry.id}-${(selectedCountry.boundary_geojson?.type||"")}`} data={selectedCountry.boundary_geojson} style={{ color: '#1a1a2e', weight: 4, fillColor: '#1a1a2e', fillOpacity: 0.05 }} />
+            <GeoJSON key={`country-${selectedCountry.id}-${(selectedCountry.boundary_geojson?.type||"")}`} data={selectedCountry.boundary_geojson} style={{ color: '#6c63ff', weight: 3, fillColor: '#6c63ff', fillOpacity: 0.12 }} />
           )}
 
           {regions.filter(r => r.boundary_geojson).map((r) => {
@@ -214,7 +225,7 @@ export default function ZoneMap({ selectedCountry }) {
           })}
 
           {zones.map((zone) => {
-            const color = ZONE_COLORS[zone.id % ZONE_COLORS.length];
+            const color = getZoneColor(zone);
             const isSel = selectedZone?.id === zone.id;
             const isEdit = editItem?.id === zone.id && drawTarget === 'zone';
             if (isEdit) return null;
@@ -235,7 +246,7 @@ export default function ZoneMap({ selectedCountry }) {
           })}
 
           {zones.map((zone) => {
-            const color = ZONE_COLORS[zone.id % ZONE_COLORS.length];
+            const color = getZoneColor(zone);
             return (
               <Marker key={`l-${zone.id}`} position={[zone.center_lat || 0, zone.center_lng || 0]}
                 icon={L.divIcon({ className: '', html: `<div style="background:rgba(255,255,255,.95);padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;color:${color};border:1px solid ${color};white-space:nowrap;pointer-events:none;">${zone.locked ? '🔒' : ''}${zone.postal_code}</div>`, iconSize: [80, 20], iconAnchor: [40, 10] })}
@@ -268,7 +279,7 @@ export default function ZoneMap({ selectedCountry }) {
             <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, color: '#1a1a2e' }}>Zones</div>
             <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
               {zones.slice(0, 50).map((z) => {
-                const color = ZONE_COLORS[z.id % ZONE_COLORS.length];
+                const color = getZoneColor(z);
                 return (
                   <div key={z.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, cursor: 'pointer' }} onClick={() => setSelectedZone(z)}>
                     <div style={{ width: 12, height: 12, borderRadius: 3, background: color, border: '1px solid rgba(0,0,0,.1)' }} />
@@ -285,7 +296,7 @@ export default function ZoneMap({ selectedCountry }) {
           <div style={styles.info}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: ZONE_COLORS[selectedZone.id % ZONE_COLORS.length] }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: getZoneColor(selectedZone) }}>
                   {selectedZone.locked ? '🔒 ' : ''}{selectedZone.postal_code}
                 </div>
                 <div style={{ fontWeight: 600, fontSize: 14 }}>{selectedZone.name}</div>
@@ -297,6 +308,31 @@ export default function ZoneMap({ selectedCountry }) {
               {selectedZone.district_name && <div>District: <strong>{selectedZone.district_name}</strong></div>}
               {selectedZone.population && <div>Population: <strong>{selectedZone.population.toLocaleString()}</strong></div>}
               {selectedZone.area_sq_km && <div>Area: <strong>{selectedZone.area_sq_km.toFixed(1)} km²</strong></div>}
+            </div>
+            <div style={{ marginTop: 10, display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: '#666', marginRight: 4 }}>Color:</span>
+              {ZONE_COLORS.map(c => (
+                <button
+                  key={c}
+                  onClick={() => handleColorChange(selectedZone.id, c)}
+                  style={{
+                    width: 18, height: 18, borderRadius: 4, background: c,
+                    border: getZoneColor(selectedZone) === c ? '2px solid #1a1a2e' : '1px solid #ddd',
+                    cursor: 'pointer', padding: 0,
+                  }}
+                  title={c}
+                />
+              ))}
+              <button
+                onClick={() => handleColorChange(selectedZone.id, null)}
+                style={{
+                  fontSize: 10, padding: '2px 6px', borderRadius: 4,
+                  border: '1px solid #ddd', background: '#f5f5fa', cursor: 'pointer',
+                  color: '#666',
+                }}
+              >
+                Reset
+              </button>
             </div>
             <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button style={styles.btn} onClick={() => startDraw('zone', selectedZone)}>✏️ Edit</button>

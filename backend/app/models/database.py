@@ -86,6 +86,7 @@ class PostalZone(Base):
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=True)
     center_point = Column(Geometry("POINT", srid=4326), nullable=True)
     area_sq_km = Column(Float, nullable=True)
+    color = Column(String(7), nullable=True)  # hex color e.g. #e6194b
     locked = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now())
     updated_at = Column(DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())

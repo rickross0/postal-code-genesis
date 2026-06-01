@@ -39,6 +39,7 @@ export const autoCreateRegions = (countryId) =>
   api.post(`/countries/${countryId}/regions/auto-create`);
 export const updateRegion = (regionId, data) => api.put(`/regions/${regionId}`, data);
 export const deleteRegion = (regionId) => api.delete(`/regions/${regionId}`);
+export const deleteAllRegions = (countryId) => api.delete(`/countries/${countryId}/regions`);
 
 // Lookup
 export const lookupByCoordinates = (lat, lng) => api.get(`/lookup/coordinates?lat=${lat}&lng=${lng}`);

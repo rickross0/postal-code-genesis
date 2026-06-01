@@ -4,7 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
   listZones, updateZone, autoCreateAllZones, createZoneManual, listDistricts,
-  deleteZone, listRegions, createRegion, updateRegion, deleteRegion, autoCreateRegions,
+  deleteZone, listRegions, createRegion, updateRegion, deleteRegion, autoCreateRegions, deleteAllRegions,
   createDistrict, updateDistrict, deleteDistrict, autoCreateDistricts, updateCountryBoundary,
 } from '../services/api';
 
@@ -69,6 +69,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [editingName, setEditingName] = useState(null); // { type, id, value }
   const [hiddenMap, setHiddenMap] = useState({}); // { "z-1": true, "d-2": true, "r-3": true }
   const [countryHidden, setCountryHidden] = useState(false);
+  const [undoableRegions, setUndoableRegions] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!selectedCountry) return;
@@ -86,6 +87,10 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   }, [selectedCountry]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => {
+    setUndoableRegions(false);
+  }, [selectedCountry?.id]);
 
   const startDraw = useCallback((target, item) => {
     setDrawing(true); setDrawPoints([]); setEditItem(item || null); setDrawTarget(target);
@@ -217,8 +222,14 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
 
   const handleAutoRegions = useCallback(async () => {
     if (!window.confirm('Auto-generate regions for this country? This replaces all existing regions, districts, and zones.')) return;
-    try { await autoCreateRegions(selectedCountry.id); await loadData(); }
+    try { await autoCreateRegions(selectedCountry.id); setUndoableRegions(true); await loadData(); }
     catch (err) { alert('Failed: ' + (err.response?.data?.detail || err.message)); }
+  }, [selectedCountry, loadData]);
+
+  const handleUndoRegions = useCallback(async () => {
+    if (!window.confirm('Undo auto-regions? This deletes ALL regions, districts, and zones for this country.')) return;
+    try { await deleteAllRegions(selectedCountry.id); setUndoableRegions(false); await loadData(); }
+    catch (err) { alert('Undo failed: ' + (err.response?.data?.detail || err.message)); }
   }, [selectedCountry, loadData]);
 
   const handleAutoDistricts = useCallback(async (regionId) => {
@@ -264,6 +275,9 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         <button style={styles.btnG} onClick={() => startDraw('zone', null)}>✏️ Zone</button>
         <button style={styles.btnG} onClick={handleAutoGen}>⚡ Auto-Fill</button>
         <button style={styles.btnO} onClick={handleAutoRegions}>🗺 Auto Regions</button>
+        {undoableRegions && (
+          <button style={{ ...styles.btnD, background: '#c62828' }} onClick={handleUndoRegions}>↩️ Undo Regions</button>
+        )}
         {(selectedZone || selDistrict || selRegion) && (
           <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={clearSelections}>👁️‍🗨️ Hide Selection</button>
         )}

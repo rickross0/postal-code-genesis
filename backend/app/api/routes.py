@@ -820,6 +820,23 @@ async def auto_create_regions(
     return created
 
 
+@router.delete("/countries/{country_id}/regions")
+async def delete_all_regions(
+    country_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete all regions for a country (cascades to districts and zones). Use as undo for auto-regions."""
+    from sqlalchemy import select
+    result = await db.execute(select(Region).where(Region.country_id == country_id))
+    regions = result.scalars().all()
+    for region in regions:
+        if region.locked:
+            raise HTTPException(423, f"Region {region.name} is locked. Unlock it first.")
+        await db.delete(region)
+    await db.flush()
+    return {"detail": f"Deleted {len(regions)} regions", "count": len(regions)}
+
+
 @router.put("/regions/{region_id}")
 async def update_region(
     region_id: int,

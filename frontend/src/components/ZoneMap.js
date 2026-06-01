@@ -214,6 +214,11 @@ export default function ZoneMap({ selectedCountry }) {
           <FitBounds zones={zones} cid={selectedCountry.id} />
           <ClickH onClick={onMapClick} />
 
+          {selectedCountry?.boundary_geojson && (
+            <GeoJsonLayer key="country-boundary" data={selectedCountry.boundary_geojson}
+              style={{ color: '#1a1a2e', weight: 4, fillColor: '#1a1a2e', fillOpacity: 0.05, dashArray: null }} />
+          )}
+
           {regions.filter(r => r.boundary_geojson).map((r) => {
             const color = REGION_COLORS[r.id % REGION_COLORS.length];
             return (

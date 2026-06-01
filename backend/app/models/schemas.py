@@ -79,6 +79,7 @@ class CountryProfileResponse(BaseModel):
     capital_lat: Optional[float] = None
     capital_lng: Optional[float] = None
     locked: bool = False
+    boundary_geojson: Optional[Any] = None
 
 
 class CodeFormatResponse(BaseModel):

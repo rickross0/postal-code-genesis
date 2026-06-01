@@ -132,26 +132,37 @@ async def create_country(
 @router.get("/countries", response_model=List[CountryProfileResponse])
 async def list_countries(db: AsyncSession = Depends(get_db)):
     """List all countries in the platform."""
-    from sqlalchemy import select
+    from sqlalchemy import select, text
     try:
-        result = await db.execute(select(Country).order_by(Country.name))
-        countries = result.scalars().all()
+        result = await db.execute(text("""
+            SELECT
+                c.id, c.name, c.iso_code, c.tier, c.estimated_population, c.area_sq_km,
+                c.num_regions, c.num_districts, c.languages,
+                c.urban_percentage, c.literacy_rate, c.mobile_penetration,
+                c.capital_city, c.capital_lat, c.capital_lng, c.locked,
+                ST_AsGeoJSON(c.boundary) AS boundary_geojson
+            FROM countries c
+            ORDER BY c.name
+        """))
+        rows = result.mappings().all()
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Failed to query countries: {e}")
         raise HTTPException(503, f"Database not ready: {e}")
     return [
         CountryProfileResponse(
-            id=c.id, name=c.name, iso_code=c.iso_code, tier=c.tier or "mixed_rural_urban",
-            estimated_population=c.estimated_population or 0, area_sq_km=c.area_sq_km or 0,
-            num_regions=c.num_regions or 1, num_districts=c.num_districts or 1,
-            languages=json.loads(c.languages) if c.languages else [],
-            urban_percentage=float(c.urban_percentage or 0), literacy_rate=float(c.literacy_rate or 0),
-            mobile_penetration=float(c.mobile_penetration or 0),
-            capital_city=c.capital_city, capital_lat=float(c.capital_lat) if c.capital_lat else None,
-            capital_lng=float(c.capital_lng) if c.capital_lng else None,
+            id=r["id"], name=r["name"], iso_code=r["iso_code"], tier=r["tier"] or "mixed_rural_urban",
+            estimated_population=r["estimated_population"] or 0, area_sq_km=r["area_sq_km"] or 0,
+            num_regions=r["num_regions"] or 1, num_districts=r["num_districts"] or 1,
+            languages=json.loads(r["languages"]) if r["languages"] else [],
+            urban_percentage=float(r["urban_percentage"] or 0), literacy_rate=float(r["literacy_rate"] or 0),
+            mobile_penetration=float(r["mobile_penetration"] or 0),
+            capital_city=r["capital_city"], capital_lat=float(r["capital_lat"]) if r["capital_lat"] else None,
+            capital_lng=float(r["capital_lng"]) if r["capital_lng"] else None,
+            locked=bool(r["locked"]) if r["locked"] is not None else False,
+            boundary_geojson=json.loads(r["boundary_geojson"]) if r["boundary_geojson"] else None,
         )
-        for c in countries
+        for r in rows
     ]
 
 

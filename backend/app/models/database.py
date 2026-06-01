@@ -32,6 +32,7 @@ class Country(Base):
     capital_lat = Column(Float, nullable=True)
     capital_lng = Column(Float, nullable=True)
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=True)
+    locked = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now())
     updated_at = Column(DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
 
@@ -48,6 +49,7 @@ class Region(Base):
     local_name = Column(String(255), nullable=True)
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=True)
     center_point = Column(Geometry("POINT", srid=4326), nullable=True)
+    locked = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now())
 
     country = relationship("Country", back_populates="regions")
@@ -64,6 +66,7 @@ class District(Base):
     local_name = Column(String(255), nullable=True)
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=True)
     center_point = Column(Geometry("POINT", srid=4326), nullable=True)
+    locked = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now())
 
     region = relationship("Region", back_populates="districts")
@@ -83,6 +86,7 @@ class PostalZone(Base):
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=True)
     center_point = Column(Geometry("POINT", srid=4326), nullable=True)
     area_sq_km = Column(Float, nullable=True)
+    locked = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now())
     updated_at = Column(DateTime, default=lambda: datetime.now(), onupdate=lambda: datetime.now())
 

@@ -78,6 +78,7 @@ class CountryProfileResponse(BaseModel):
     capital_city: Optional[str] = None
     capital_lat: Optional[float] = None
     capital_lng: Optional[float] = None
+    locked: bool = False
 
 
 class CodeFormatResponse(BaseModel):
@@ -132,6 +133,13 @@ class ZoneCreate(BaseModel):
     boundary_geojson: Optional[Any] = None
 
 
+class BoundaryUpdate(BaseModel):
+    """Update a boundary polygon and optionally lock/unlock."""
+    boundary_geojson: Optional[Any] = None
+    name: Optional[str] = None
+    locked: Optional[bool] = None
+
+
 class ManualZoneCreate(BaseModel):
     """Create a zone by drawing a polygon on the map."""
     country_id: int
@@ -151,6 +159,7 @@ class ZoneUpdate(BaseModel):
     lng: Optional[float] = None
     boundary_geojson: Optional[Any] = None
     status: Optional[str] = None
+    locked: Optional[bool] = None
 
 
 class ZoneResponse(BaseModel):
@@ -167,6 +176,7 @@ class ZoneResponse(BaseModel):
     region_name: Optional[str] = None
     district_name: Optional[str] = None
     boundary_geojson: Optional[Any] = None
+    locked: bool = False
 
 
 class LookupResult(BaseModel):

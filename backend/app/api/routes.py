@@ -15,6 +15,7 @@ from app.models.schemas import (
     ZoneUpdate,
     ZoneResponse,
     ManualZoneCreate,
+    BoundaryUpdate,
     LookupResult,
     SearchResult,
     USSDRequest,
@@ -602,6 +603,7 @@ async def list_zones(
             d.id AS district_id, d.name AS district_name, d.code AS district_code,
             r.name AS region_name, r.code AS region_code,
             ST_AsGeoJSON(pz.boundary) AS boundary_geojson,
+            pz.locked AS zone_locked,
             ST_AsGeoJSON(d.boundary) AS district_boundary_geojson
         FROM postal_zones pz
         JOIN districts d ON pz.district_id = d.id
@@ -617,6 +619,7 @@ async def list_zones(
             area_sq_km=r["area_sq_km"], population=r["population"],
             region_name=r["region_name"], district_name=r["district_name"],
             status=r["status"],
+            locked=bool(r.get("zone_locked", False)),
             boundary_geojson=json.loads(r["boundary_geojson"]) if r["boundary_geojson"] else None,
         )
         for r in result.mappings().all()
@@ -635,6 +638,7 @@ async def list_districts_with_boundaries(
             d.id, d.name, d.code, d.local_name,
             ST_Y(d.center_point) AS center_lat,
             ST_X(d.center_point) AS center_lng,
+            d.locked AS district_locked,
             ST_AsGeoJSON(d.boundary) AS boundary_geojson,
             r.name AS region_name, r.code AS region_code
         FROM districts d
@@ -646,8 +650,186 @@ async def list_districts_with_boundaries(
     for r in result.mappings().all():
         row = dict(r)
         row["boundary_geojson"] = json.loads(r["boundary_geojson"]) if r["boundary_geojson"] else None
+        row["locked"] = bool(r.get("district_locked", False))
         rows.append(row)
     return rows
+
+
+# ── Region CRUD ───────────────────────────────────────────
+
+@router.post("/countries/{country_id}/regions", status_code=201)
+async def create_region(
+    country_id: int,
+    db: AsyncSession = Depends(get_db),
+    name: str = Query("New Region"),
+    code: str = Query("01"),
+):
+    """Create a new region in a country."""
+    from sqlalchemy import select
+    country_res = await db.execute(select(Country).where(Country.id == country_id))
+    country = country_res.scalar_one_or_none()
+    if not country:
+        raise HTTPException(404, "Country not found")
+    region = Region(country_id=country_id, name=name, code=code)
+    db.add(region)
+    await db.flush()
+    await db.refresh(region)
+    return {"id": region.id, "name": region.name, "code": region.code, "locked": False}
+
+
+@router.put("/regions/{region_id}")
+async def update_region(
+    region_id: int,
+    update: BoundaryUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a region boundary, name, or lock status."""
+    from sqlalchemy import select, text
+    from geoalchemy2.shape import from_shape
+    from shapely.geometry import shape
+
+    result = await db.execute(select(Region).where(Region.id == region_id))
+    region = result.scalar_one_or_none()
+    if not region:
+        raise HTTPException(404, "Region not found")
+    if region.locked and (update.boundary_geojson is not None or update.name is not None):
+        raise HTTPException(423, "Region is locked. Unlock it first to edit.")
+    if update.name is not None:
+        region.name = update.name
+    if update.locked is not None:
+        region.locked = update.locked
+    if update.boundary_geojson is not None:
+        try:
+            geom = shape(update.boundary_geojson)
+            if not geom.is_valid:
+                geom = geom.buffer(0)
+            region.boundary = from_shape(geom, srid=4326)
+            region.center_point = from_shape(geom.centroid, srid=4326)
+        except Exception as e:
+            raise HTTPException(400, f"Invalid boundary: {e}")
+    await db.flush()
+    return {"id": region.id, "name": region.name, "code": region.code, "locked": region.locked}
+
+
+@router.delete("/regions/{region_id}")
+async def delete_region(region_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete a region and all its districts/zones."""
+    from sqlalchemy import select
+    result = await db.execute(select(Region).where(Region.id == region_id))
+    region = result.scalar_one_or_none()
+    if not region:
+        raise HTTPException(404, "Region not found")
+    if region.locked:
+        raise HTTPException(423, "Region is locked. Unlock it first.")
+    await db.delete(region)
+    await db.flush()
+    return {"detail": "Region deleted", "id": region_id}
+
+
+# ── District CRUD ──────────────────────────────────────────
+
+@router.post("/regions/{region_id}/districts", status_code=201)
+async def create_district(
+    region_id: int,
+    db: AsyncSession = Depends(get_db),
+    name: str = Query("New District"),
+    code: str = Query("01"),
+):
+    """Create a new district in a region."""
+    from sqlalchemy import select
+    region_res = await db.execute(select(Region).where(Region.id == region_id))
+    region = region_res.scalar_one_or_none()
+    if not region:
+        raise HTTPException(404, "Region not found")
+    district = District(region_id=region_id, name=name, code=code)
+    db.add(district)
+    await db.flush()
+    await db.refresh(district)
+    return {"id": district.id, "name": district.name, "code": district.code, "locked": False}
+
+
+@router.put("/districts/{district_id}")
+async def update_district(
+    district_id: int,
+    update: BoundaryUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update a district boundary, name, or lock status."""
+    from sqlalchemy import select, text
+    from geoalchemy2.shape import from_shape
+    from shapely.geometry import shape
+
+    result = await db.execute(select(District).where(District.id == district_id))
+    district = result.scalar_one_or_none()
+    if not district:
+        raise HTTPException(404, "District not found")
+    if district.locked and (update.boundary_geojson is not None or update.name is not None):
+        raise HTTPException(423, "District is locked. Unlock it first to edit.")
+    if update.name is not None:
+        district.name = update.name
+    if update.locked is not None:
+        district.locked = update.locked
+    if update.boundary_geojson is not None:
+        try:
+            geom = shape(update.boundary_geojson)
+            if not geom.is_valid:
+                geom = geom.buffer(0)
+            district.boundary = from_shape(geom, srid=4326)
+            district.center_point = from_shape(geom.centroid, srid=4326)
+        except Exception as e:
+            raise HTTPException(400, f"Invalid boundary: {e}")
+    await db.flush()
+    return {"id": district.id, "name": district.name, "code": district.code, "locked": district.locked}
+
+
+@router.delete("/districts/{district_id}")
+async def delete_district(district_id: int, db: AsyncSession = Depends(get_db)):
+    """Delete a district and all its zones."""
+    from sqlalchemy import select
+    result = await db.execute(select(District).where(District.id == district_id))
+    district = result.scalar_one_or_none()
+    if not district:
+        raise HTTPException(404, "District not found")
+    if district.locked:
+        raise HTTPException(423, "District is locked. Unlock it first.")
+    await db.delete(district)
+    await db.flush()
+    return {"detail": "District deleted", "id": district_id}
+
+
+# ── Country boundary update ──────────────────────────────
+
+@router.put("/countries/{country_id}/boundary")
+async def update_country_boundary(
+    country_id: int,
+    update: BoundaryUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update country boundary, or lock/unlock it."""
+    from sqlalchemy import select
+    from geoalchemy2.shape import from_shape
+    from shapely.geometry import shape
+
+    result = await db.execute(select(Country).where(Country.id == country_id))
+    country = result.scalar_one_or_none()
+    if not country:
+        raise HTTPException(404, "Country not found")
+    if country.locked and update.boundary_geojson is not None:
+        raise HTTPException(423, "Country is locked. Unlock it first to edit.")
+    if update.name is not None:
+        country.name = update.name
+    if update.locked is not None:
+        country.locked = update.locked
+    if update.boundary_geojson is not None:
+        try:
+            geom = shape(update.boundary_geojson)
+            if not geom.is_valid:
+                geom = geom.buffer(0)
+            country.boundary = from_shape(geom, srid=4326)
+        except Exception as e:
+            raise HTTPException(400, f"Invalid boundary: {e}")
+    await db.flush()
+    return {"id": country.id, "name": country.name, "locked": country.locked}
 
 
 # ── Zone Update ───────────────────────────────────────────
@@ -668,10 +850,14 @@ async def update_zone(
     if not zone:
         raise HTTPException(404, "Zone not found")
 
+    if zone.locked and (zone_update.boundary_geojson is not None or zone_update.name is not None):
+        raise HTTPException(423, "Zone is locked. Unlock it first to edit.")
     if zone_update.name is not None:
         zone.name = zone_update.name
     if zone_update.population is not None:
         zone.population = zone_update.population
+    if zone_update.locked is not None:
+        zone.locked = zone_update.locked
     if zone_update.boundary_geojson is not None:
         try:
             geom = shape(zone_update.boundary_geojson)
@@ -728,6 +914,8 @@ async def delete_zone(
     zone = result.scalar_one_or_none()
     if not zone:
         raise HTTPException(404, "Zone not found")
+    if zone.locked:
+        raise HTTPException(423, "Zone is locked. Unlock it first.")
     await db.delete(zone)
     await db.flush()
     return {"detail": "Zone deleted", "id": zone_id}

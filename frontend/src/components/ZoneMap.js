@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Polygon, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, Marker, Polygon, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -49,6 +49,35 @@ function FitBounds({ zones, cid }) {
 
 function ClickH({ onClick }) { useMapEvents({ click: onClick }); return null; }
 
+function GeoJsonLayer({ data, style, eventHandlers }) {
+  const map = useMap();
+  const layerRef = useRef(null);
+  const styleRef = useRef(style);
+  const handlersRef = useRef(eventHandlers);
+  styleRef.current = style;
+  handlersRef.current = eventHandlers;
+  useEffect(() => {
+    if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
+    if (!data) return;
+    const featureData = data.type === 'Feature' || data.type === 'FeatureCollection'
+      ? data
+      : { type: 'Feature', geometry: data, properties: {} };
+    const layer = L.geoJSON(featureData, {
+      style: typeof styleRef.current === 'function' ? styleRef.current : () => styleRef.current,
+      onEachFeature: (feature, lyr) => {
+        if (handlersRef.current) {
+          Object.entries(handlersRef.current).forEach(([ev, fn]) => lyr.on(ev, fn));
+        }
+      },
+    });
+    layer.addTo(map);
+    layerRef.current = layer;
+    return () => { if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; } };
+  }, [map, data]);
+  return null;
+}
+
+
 export default function ZoneMap({ selectedCountry }) {
   const [zones, setZones] = useState([]);
   const [districts, setDistricts] = useState([]);
@@ -67,11 +96,14 @@ export default function ZoneMap({ selectedCountry }) {
     if (!selectedCountry) return;
     setLoading(true);
     try {
-      const [zRes, dRes, rRes] = await Promise.all([listZones(selectedCountry.id), listDistricts(selectedCountry.id), listRegions(selectedCountry.id)]);
+      const [zRes, dRes] = await Promise.all([listZones(selectedCountry.id), listDistricts(selectedCountry.id)]);
       setZones(zRes.data);
       setDistricts(dRes.data);
+    } catch (e) { console.error('loadZones/Districts failed:', e); }
+    try {
+      const rRes = await listRegions(selectedCountry.id);
       setRegions(rRes.data);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error('loadRegions failed:', e); }
     setLoading(false);
   }, [selectedCountry]);
 
@@ -189,8 +221,8 @@ export default function ZoneMap({ selectedCountry }) {
           {regions.filter(r => r.boundary_geojson).map((r) => {
             const color = REGION_COLORS[r.id % REGION_COLORS.length];
             return (
-              <GeoJSON key={`rg-${r.id}`} data={r.boundary_geojson}
-                style={{ color, weight: 3, fillColor: color, fillOpacity: 0.08, dashArray: '8,4' }}
+              <GeoJsonLayer key={`rg-${r.id}`} data={r.boundary_geojson}
+                style={{ color, weight: 3, fillColor: color, fillOpacity: 0.15, dashArray: '8,4' }}
                 eventHandlers={{ click: () => { if (!drawing) { setSelRegion(r.id); setSelDistrict(null); } } }} />
             );
           })}
@@ -199,9 +231,9 @@ export default function ZoneMap({ selectedCountry }) {
             const isSel = selDistrict === d.id;
             const col = isSel ? '#6c63ff' : (i % 2 === 0 ? '#888' : '#aaa');
             return d.boundary_geojson ? (
-              <GeoJSON key={`d-${d.id}`} data={d.boundary_geojson} style={{
+              <GeoJsonLayer key={`d-${d.id}`} data={d.boundary_geojson} style={{
                 color: col, weight: isSel ? 3 : 2, fillColor: isSel ? '#6c63ff' : '#ccc',
-                fillOpacity: isSel ? 0.08 : 0.03, dashArray: d.locked ? '8,4' : undefined,
+                fillOpacity: isSel ? 0.15 : 0.08, dashArray: d.locked ? '8,4' : undefined,
               }} eventHandlers={{
                 click: () => { if (!drawing) { setSelDistrict(isSel ? null : d.id); setSelRegion(d.region_id); } },
               }} />
@@ -215,7 +247,7 @@ export default function ZoneMap({ selectedCountry }) {
             if (isEdit) return null;
             if (zone.boundary_geojson) {
               return (
-                <GeoJSON key={zone.id} data={zone.boundary_geojson} style={{
+                <GeoJsonLayer key={zone.id} data={zone.boundary_geojson} style={{
                   color: isSel ? '#fff' : color, weight: isSel ? 3 : 1.5,
                   fillColor: color, fillOpacity: isSel ? 0.5 : 0.25,
                   dashArray: zone.locked ? '4,4' : undefined,

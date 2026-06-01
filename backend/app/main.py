@@ -70,7 +70,8 @@ if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
         fav = STATIC_DIR / "favicon.ico"
         if fav.exists():
             return FileResponse(str(fav))
-        return FileResponse(str(STATIC_DIR / "index.html"), status_code=404)
+        return FileResponse(str(STATIC_DIR / "index.html"), status_code=404,
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
     # Serve JS/CSS assets from /static (React build output)
     static_assets = STATIC_DIR / "static"
@@ -83,7 +84,11 @@ if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
         file_path = STATIC_DIR / full_path
         if full_path and file_path.exists() and file_path.is_file():
             return FileResponse(str(file_path))
-        return FileResponse(str(STATIC_DIR / "index.html"))
+        # Never cache index.html so the browser always fetches the latest JS/CSS hashes
+        return FileResponse(
+            str(STATIC_DIR / "index.html"),
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
+        )
 
 
 if __name__ == "__main__":

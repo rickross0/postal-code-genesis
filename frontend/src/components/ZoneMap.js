@@ -169,6 +169,12 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     } catch (err) { alert('Color update failed: ' + (err.response?.data?.detail || err.message)); }
   }, [loadData]);
 
+  const clearSelections = useCallback(() => {
+    setSelectedZone(null);
+    setSelDistrict(null);
+    setSelRegion(null);
+  }, []);
+
   const handleMoveZone = useCallback(async (zoneId, lat, lng) => {
     try {
       await updateZone(zoneId, { lat, lng });
@@ -192,9 +198,12 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       handleMoveZone(movingZone, e.latlng.lat, e.latlng.lng);
       return;
     }
-    if (!drawing) return;
+    if (!drawing) {
+      clearSelections();
+      return;
+    }
     setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
-  }, [drawing, movingZone]);
+  }, [drawing, movingZone, clearSelections]);
 
   if (!selectedCountry) return <div style={styles.empty}>Select a country to view zones</div>;
 
@@ -209,6 +218,9 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         <button style={styles.btnS} onClick={() => startDraw('district', null)}>📍 District</button>
         <button style={styles.btnG} onClick={() => startDraw('zone', null)}>✏️ Zone</button>
         <button style={styles.btnG} onClick={handleAutoGen}>⚡ Auto-Fill</button>
+        {(selectedZone || selDistrict || selRegion) && (
+          <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={clearSelections}>👁️‍🗨️ Hide Selection</button>
+        )}
       </div>
 
       <div style={styles.mapWrap}>
@@ -376,9 +388,12 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
 
         {selDistrict && !drawing && districts.find(d => d.id === selDistrict) && (
           <div style={{ position: 'absolute', bottom: 20, left: 20, background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 6 }}>
-              📍 {districts.find(d => d.id === selDistrict)?.name}
-              {districts.find(d => d.id === selDistrict)?.locked ? ' 🔒' : ''}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 6 }}>
+                📍 {districts.find(d => d.id === selDistrict)?.name}
+                {districts.find(d => d.id === selDistrict)?.locked ? ' 🔒' : ''}
+              </div>
+              <button style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: '#999', lineHeight: 1 }} onClick={() => setSelDistrict(null)}>✕</button>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button style={styles.btnS} onClick={() => startDraw('district', districts.find(d => d.id === selDistrict))}>✏️ Edit Boundary</button>
@@ -392,9 +407,12 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
 
         {selRegion && !drawing && regions.find(r => r.id === selRegion) && (
           <div style={{ position: 'absolute', bottom: 80, left: 20, background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 6 }}>
-              🗺️ {regions.find(r => r.id === selRegion)?.name}
-              {regions.find(r => r.id === selRegion)?.locked ? ' 🔒' : ''}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 6 }}>
+                🗺️ {regions.find(r => r.id === selRegion)?.name}
+                {regions.find(r => r.id === selRegion)?.locked ? ' 🔒' : ''}
+              </div>
+              <button style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: '#999', lineHeight: 1 }} onClick={() => setSelRegion(null)}>✕</button>
             </div>
             <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>
               Boundary: {regions.find(r => r.id === selRegion)?.boundary_geojson ? '✅ Yes' : '❌ None — draw one'}

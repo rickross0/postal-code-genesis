@@ -16,7 +16,7 @@ const ZONE_COLORS = [
 ];
 
 const getZoneColor = (zone) => zone?.color || ZONE_COLORS[(zone?.id || 0) % ZONE_COLORS.length];
-const isHidden = (hiddenItems, type, id) => hiddenItems.has(`${type}-${id}`);
+const isHidden = (map, type, id) => !!map[`${type}-${id}`];
 
 const REGION_COLORS = ['#6c63ff','#ff6b6b','#51cf66','#ffd43b','#339af0','#f06595'];
 
@@ -67,7 +67,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [saving, setSaving] = useState(false);
   const [movingZone, setMovingZone] = useState(null);
   const [editingName, setEditingName] = useState(null); // { type, id, value }
-  const [hiddenItems, setHiddenItems] = useState(new Set()); // ids of hidden zones/districts/regions
+  const [hiddenMap, setHiddenMap] = useState({}); // { "z-1": true, "d-2": true, "r-3": true }
 
   const loadData = useCallback(async () => {
     if (!selectedCountry) return;
@@ -174,11 +174,11 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
 
   const clearSelections = useCallback(() => {
     // Hide whatever is currently selected instead of just deselecting
-    setHiddenItems(prev => {
-      const next = new Set(prev);
-      if (selectedZone) next.add(`z-${selectedZone.id}`);
-      if (selDistrict) next.add(`d-${selDistrict}`);
-      if (selRegion) next.add(`r-${selRegion}`);
+    setHiddenMap(prev => {
+      const next = { ...prev };
+      if (selectedZone) next[`z-${selectedZone.id}`] = true;
+      if (selDistrict) next[`d-${selDistrict}`] = true;
+      if (selRegion) next[`r-${selRegion}`] = true;
       return next;
     });
     setSelectedZone(null);
@@ -242,8 +242,8 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         {(selectedZone || selDistrict || selRegion) && (
           <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={clearSelections}>👁️‍🗨️ Hide Selection</button>
         )}
-        {hiddenItems.size > 0 && (
-          <button style={{ ...styles.btnS, border: '1px solid #51cf66', color: '#51cf66' }} onClick={() => setHiddenItems(new Set())}>👁️ Show All ({hiddenItems.size} hidden)</button>
+        {Object.keys(hiddenMap).length > 0 && (
+          <button style={{ ...styles.btnS, border: '1px solid #51cf66', color: '#51cf66' }} onClick={() => setHiddenMap({})}>👁️ Show All ({Object.keys(hiddenMap).length} hidden)</button>
         )}
       </div>
 
@@ -257,14 +257,14 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             <GeoJSON key={`country-${selectedCountry.id}-${(selectedCountry.boundary_geojson?.type||"")}`} data={selectedCountry.boundary_geojson} style={{ color: '#6c63ff', weight: 3, fillColor: '#6c63ff', fillOpacity: 0.12 }} />
           )}
 
-          {regions.filter(r => r.boundary_geojson && !isHidden(hiddenItems, 'r', r.id)).map((r) => {
+          {regions.filter(r => r.boundary_geojson && !isHidden(hiddenMap, 'r', r.id)).map((r) => {
             const color = REGION_COLORS[r.id % REGION_COLORS.length];
             return (
               <GeoJSON key={`rg-${r.id}-${r.boundary_geojson?.type||""}`} data={r.boundary_geojson} style={() => ({ color, weight: 3, fillColor: color, fillOpacity: 0.2, dashArray: '8,4' })} eventHandlers={{ click: () => { if (!drawing) { setSelRegion(r.id); setSelDistrict(null); } } }} />
             );
           })}
 
-          {districts.filter(d => !isHidden(hiddenItems, 'd', d.id)).map((d, i) => {
+          {districts.filter(d => !isHidden(hiddenMap, 'd', d.id)).map((d, i) => {
             const isSel = selDistrict === d.id;
             const col = isSel ? '#6c63ff' : (i % 2 === 0 ? '#888' : '#aaa');
             return d.boundary_geojson ? (
@@ -277,7 +277,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             ) : null;
           })}
 
-          {zones.filter(z => !isHidden(hiddenItems, 'z', z.id)).map((zone) => {
+          {zones.filter(z => !isHidden(hiddenMap, 'z', z.id)).map((zone) => {
             const color = getZoneColor(zone);
             const isSel = selectedZone?.id === zone.id;
             const isEdit = editItem?.id === zone.id && drawTarget === 'zone';
@@ -298,7 +298,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             );
           })}
 
-          {zones.filter(z => !isHidden(hiddenItems, 'z', z.id)).map((zone) => {
+          {zones.filter(z => !isHidden(hiddenMap, 'z', z.id)).map((zone) => {
             const color = getZoneColor(zone);
             return (
               <Marker key={`l-${zone.id}`} position={[zone.center_lat || 0, zone.center_lng || 0]}
@@ -341,7 +341,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           <div style={styles.legend}>
             <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, color: '#1a1a2e' }}>Zones</div>
             <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
-              {zones.filter(z => !isHidden(hiddenItems, 'z', z.id)).slice(0, 50).map((z) => {
+              {zones.filter(z => !isHidden(hiddenMap, 'z', z.id)).slice(0, 50).map((z) => {
                 const color = getZoneColor(z);
                 return (
                   <div key={z.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, cursor: 'pointer' }} onClick={() => setSelectedZone(z)}>
@@ -351,9 +351,9 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                   </div>
                 );
               })}
-              {zones.some(z => isHidden(hiddenItems, 'z', z.id)) && (
+              {zones.some(z => isHidden(hiddenMap, 'z', z.id)) && (
                 <div style={{ fontSize: 10, color: '#999', marginTop: 4, paddingTop: 4, borderTop: '1px solid #eee' }}>
-                  {zones.filter(z => isHidden(hiddenItems, 'z', z.id)).length} hidden
+                  {zones.filter(z => isHidden(hiddenMap, 'z', z.id)).length} hidden
                 </div>
               )}
             </div>
@@ -407,7 +407,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
               <button style={{ ...styles.btnS, background: movingZone === selectedZone.id ? '#ffe8cc' : '#f0f0f5', color: '#ff922b', border: '1px solid #ff922b' }} onClick={() => setMovingZone(movingZone === selectedZone.id ? null : selectedZone.id)}>
                 {movingZone === selectedZone.id ? '❌ Cancel Move' : '📍 Move'}
               </button>
-              <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenItems(prev => { const next = new Set(prev); next.add(`z-${selectedZone.id}`); return next; }); setSelectedZone(null); }}>👁️‍🗨️ Hide</button>
+              <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenMap(prev => ({ ...prev, [`z-${selectedZone.id}`]: true })); setSelectedZone(null); }}>👁️‍🗨️ Hide</button>
               <button style={styles.btnS} onClick={() => toggleLock('zone', selectedZone.id, selectedZone.locked)}>
                 {selectedZone.locked ? '🔓 Unlock' : '🔒 Lock'}
               </button>
@@ -446,7 +446,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button style={styles.btnS} onClick={() => startDraw('district', districts.find(d => d.id === selDistrict))}>✏️ Edit Boundary</button>
-              <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenItems(prev => { const next = new Set(prev); next.add(`d-${selDistrict}`); return next; }); setSelDistrict(null); }}>👁️‍🗨️ Hide</button>
+              <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenMap(prev => ({ ...prev, [`d-${selDistrict}`]: true })); setSelDistrict(null); }}>👁️‍🗨️ Hide</button>
               <button style={styles.btnS} onClick={() => toggleLock('district', selDistrict, districts.find(d => d.id === selDistrict)?.locked)}>
                 {districts.find(d => d.id === selDistrict)?.locked ? '🔓 Unlock' : '🔒 Lock'}
               </button>
@@ -488,7 +488,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button style={styles.btnS} onClick={() => startDraw('region', regions.find(r => r.id === selRegion))}>✏️ Edit Boundary</button>
-              <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenItems(prev => { const next = new Set(prev); next.add(`r-${selRegion}`); return next; }); setSelRegion(null); }}>👁️‍🗨️ Hide</button>
+              <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenMap(prev => ({ ...prev, [`r-${selRegion}`]: true })); setSelRegion(null); }}>👁️‍🗨️ Hide</button>
               <button style={styles.btnS} onClick={() => toggleLock('region', selRegion, regions.find(r => r.id === selRegion)?.locked)}>
                 {regions.find(r => r.id === selRegion)?.locked ? '🔓 Unlock' : '🔒 Lock'}
               </button>
@@ -503,7 +503,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             {regions.map((r) => {
               const color = REGION_COLORS[r.id % REGION_COLORS.length];
               const isSel = selRegion === r.id;
-              const hidden = isHidden(hiddenItems, 'r', r.id);
+              const hidden = isHidden(hiddenMap, 'r', r.id);
               return (
                 <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, cursor: 'pointer', background: isSel ? '#f0f0f5' : 'transparent', borderRadius: 4, padding: '2px 4px', opacity: hidden ? 0.4 : 1 }} onClick={() => { setSelRegion(isSel ? null : r.id); setSelDistrict(null); }}>
                   <div style={{ width: 12, height: 12, borderRadius: 3, background: color, border: '1px solid rgba(0,0,0,.1)' }} />

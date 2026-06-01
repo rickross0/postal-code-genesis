@@ -178,4 +178,4 @@ STEP 7: ONGOING MAINTENANCE
 
 └──────────────────────────────────────────────┘
 """
-        return PolicyDocumentResponse(policy_document=policy, implementation_guide=guide)
+        return {"policy_document": policy, "implementation_guide": guide}

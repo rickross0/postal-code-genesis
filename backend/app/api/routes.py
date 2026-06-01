@@ -871,8 +871,8 @@ async def generate_policy(country_id: int, db: AsyncSession = Depends(get_db)):
     return PolicyDocumentResponse(
         country_id=country_id,
         title=f"National Postal Code Policy - {country.name}",
-        policy_document=doc_result.policy_document,
-        implementation_guide=doc_result.implementation_guide,
+        policy_document=doc_result["policy_document"],
+        implementation_guide=doc_result["implementation_guide"],
         sections=[],
     )
 

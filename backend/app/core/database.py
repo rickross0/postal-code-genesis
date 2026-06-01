@@ -95,6 +95,10 @@ async def init_db():
                 await _add_column_if_missing(conn, "countries", "capital_city", "VARCHAR(255)")
                 await _add_column_if_missing(conn, "countries", "capital_lat", "FLOAT")
                 await _add_column_if_missing(conn, "countries", "capital_lng", "FLOAT")
+                await _add_column_if_missing(conn, "countries", "locked", "BOOLEAN DEFAULT FALSE")
+                await _add_column_if_missing(conn, "regions", "locked", "BOOLEAN DEFAULT FALSE")
+                await _add_column_if_missing(conn, "districts", "locked", "BOOLEAN DEFAULT FALSE")
+                await _add_column_if_missing(conn, "postal_zones", "locked", "BOOLEAN DEFAULT FALSE")
 
             logger.info("Database initialized successfully")
             return

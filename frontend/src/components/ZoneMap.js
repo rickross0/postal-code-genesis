@@ -4,7 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
   listZones, updateZone, autoCreateAllZones, createZoneManual, listDistricts,
-  deleteZone, createRegion, updateRegion, deleteRegion,
+  deleteZone, listRegions, createRegion, updateRegion, deleteRegion,
   createDistrict, updateDistrict, deleteDistrict, updateCountryBoundary,
 } from '../services/api';
 
@@ -52,6 +52,7 @@ function ClickH({ onClick }) { useMapEvents({ click: onClick }); return null; }
 export default function ZoneMap({ selectedCountry }) {
   const [zones, setZones] = useState([]);
   const [districts, setDistricts] = useState([]);
+  const [regions, setRegions] = useState([]);
   const [selectedZone, setSelectedZone] = useState(null);
   const [selDistrict, setSelDistrict] = useState(null);
   const [selRegion, setSelRegion] = useState(null);
@@ -66,9 +67,10 @@ export default function ZoneMap({ selectedCountry }) {
     if (!selectedCountry) return;
     setLoading(true);
     try {
-      const [zRes, dRes] = await Promise.all([listZones(selectedCountry.id), listDistricts(selectedCountry.id)]);
+      const [zRes, dRes, rRes] = await Promise.all([listZones(selectedCountry.id), listDistricts(selectedCountry.id), listRegions(selectedCountry.id)]);
       setZones(zRes.data);
       setDistricts(dRes.data);
+      setRegions(rRes.data);
     } catch (e) { console.error(e); }
     setLoading(false);
   }, [selectedCountry]);
@@ -113,12 +115,10 @@ export default function ZoneMap({ selectedCountry }) {
         if (editItem) {
           await updateRegion(editItem.id, { boundary_geojson: geojson });
         } else {
-          await createRegion(selectedCountry.id, `Region ${new Date().getTime()}`, `${String(Math.floor(Math.random() * 90 + 10))}`);
-          const dRes = await listDistricts(selectedCountry.id);
-          // find the region we just created and set its boundary
-          const regions = [...new Set(dRes.data.map(d => d.region_name))];
-          // Simpler: just update by getting latest
-          // We'll reload and let user pick it
+          const rRes = await createRegion(selectedCountry.id, `Region ${new Date().getTime()}`, `${String(Math.floor(Math.random() * 90 + 10))}`);
+          if (rRes.data?.id) {
+            await updateRegion(rRes.data.id, { boundary_geojson: geojson });
+          }
         }
       } else if (drawTarget === 'country') {
         await updateCountryBoundary(selectedCountry.id, { boundary_geojson: geojson });
@@ -185,6 +185,15 @@ export default function ZoneMap({ selectedCountry }) {
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
           <FitBounds zones={zones} cid={selectedCountry.id} />
           <ClickH onClick={onMapClick} />
+
+          {regions.filter(r => r.boundary_geojson).map((r) => {
+            const color = REGION_COLORS[r.id % REGION_COLORS.length];
+            return (
+              <GeoJSON key={`rg-${r.id}`} data={r.boundary_geojson}
+                style={{ color, weight: 3, fillColor: color, fillOpacity: 0.08, dashArray: '8,4' }}
+                eventHandlers={{ click: () => { if (!drawing) { setSelRegion(r.id); setSelDistrict(null); } } }} />
+            );
+          })}
 
           {districts.map((d, i) => {
             const isSel = selDistrict === d.id;

@@ -29,6 +29,7 @@ export const updateDistrict = (districtId, data) => api.put(`/districts/${distri
 export const deleteDistrict = (districtId) => api.delete(`/districts/${districtId}`);
 
 // Regions
+export const listRegions = (countryId) => api.get(`/countries/${countryId}/regions`);
 export const createRegion = (countryId, name, code) =>
   api.post(`/countries/${countryId}/regions?name=${encodeURIComponent(name)}&code=${code}`);
 export const updateRegion = (regionId, data) => api.put(`/regions/${regionId}`, data);

@@ -655,6 +655,33 @@ async def list_districts_with_boundaries(
     return rows
 
 
+@router.get("/countries/{country_id}/regions")
+async def list_regions_with_boundaries(
+    country_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """List all regions for a country with their boundary GeoJSON."""
+    from sqlalchemy import text
+    result = await db.execute(text("""
+        SELECT
+            r.id, r.name, r.code, r.local_name,
+            ST_Y(r.center_point) AS center_lat,
+            ST_X(r.center_point) AS center_lng,
+            r.locked,
+            ST_AsGeoJSON(r.boundary) AS boundary_geojson
+        FROM regions r
+        WHERE r.country_id = :country_id
+        ORDER BY r.code
+    """), {"country_id": country_id})
+    rows = []
+    for r in result.mappings().all():
+        row = dict(r)
+        row["boundary_geojson"] = json.loads(r["boundary_geojson"]) if r["boundary_geojson"] else None
+        row["locked"] = bool(r.get("locked", False))
+        rows.append(row)
+    return rows
+
+
 # ── Region CRUD ───────────────────────────────────────────
 
 @router.post("/countries/{country_id}/regions", status_code=201)

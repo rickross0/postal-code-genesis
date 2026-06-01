@@ -170,7 +170,17 @@ async def list_countries(db: AsyncSession = Depends(get_db)):
 async def delete_country(country_id: int, db: AsyncSession = Depends(get_db)):
     """Delete a country and all associated data (cascades to regions, districts, zones, landmarks)."""
     from sqlalchemy import select
-    result = await db.execute(select(Country).where(Country.id == country_id))
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(Country)
+        .where(Country.id == country_id)
+        .options(
+            selectinload(Country.regions)
+            .selectinload(Region.districts)
+            .selectinload(District.postal_zones)
+            .selectinload(PostalZone.landmarks_rel)
+        )
+    )
     country = result.scalar_one_or_none()
     if not country:
         raise HTTPException(404, "Country not found")

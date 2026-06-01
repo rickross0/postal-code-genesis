@@ -76,7 +76,18 @@ if STATIC_DIR.exists() and (STATIC_DIR / "index.html").exists():
     # Serve JS/CSS assets from /static (React build output)
     static_assets = STATIC_DIR / "static"
     if static_assets.exists():
-        app.mount("/static", StaticFiles(directory=str(static_assets)), name="static_assets")
+        # Use a subclass to add long-term cache headers for hashed filenames
+        class CacheStaticFiles(StaticFiles):
+            async def get_response(self, path, scope):
+                response = await super().get_response(path, scope)
+                if hasattr(response, "headers"):
+                    # Hashed assets (main.abc123.js) can be cached forever
+                    if "." in path and any(h in path for h in ["main.", "chunk.", "runtime"]):
+                        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                    else:
+                        response.headers["Cache-Control"] = "public, max-age=3600"
+                return response
+        app.mount("/static", CacheStaticFiles(directory=str(static_assets)), name="static_assets")
 
     # Catch-all for SPA: serve index.html for any non-API path
     @app.get("/{full_path:path}")

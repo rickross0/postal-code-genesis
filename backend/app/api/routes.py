@@ -830,7 +830,14 @@ async def generate_policy(country_id: int, db: AsyncSession = Depends(get_db)):
     designer = PostalSystemDesigner(profile)
     analysis = designer.analyze_country()
     generator = PolicyDocumentGenerator()
-    return generator.generate_postal_code_policy(profile, analysis)
+    result = generator.generate_postal_code_policy(profile, analysis)
+    return PolicyDocumentResponse(
+        country_id=country_id,
+        title=f"National Postal Code Policy - {country.name}",
+        policy_document=result.policy_document,
+        implementation_guide=result.implementation_guide,
+        sections=[],
+    )
 
 
 # ── Statistics ────────────────────────────────────────────

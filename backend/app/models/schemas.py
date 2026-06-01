@@ -185,5 +185,6 @@ class USSDResponse(BaseModel):
 class PolicyDocumentResponse(BaseModel):
     country_id: int
     title: str
-    content: str
+    policy_document: str
+    implementation_guide: str
     sections: List[Dict[str, Any]]

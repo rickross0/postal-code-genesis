@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Marker, Polygon, useMap, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Polygon, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
@@ -48,31 +48,6 @@ function FitBounds({ zones, cid }) {
 }
 
 function ClickH({ onClick }) { useMapEvents({ click: onClick }); return null; }
-
-function GeoJsonLayer({ data, style, eventHandlers }) {
-  const map = useMap();
-  const dataStr = useMemo(() => JSON.stringify(data), [data]);
-  useEffect(() => {
-    if (!data) return;
-    const featureData = data.type === 'Feature' || data.type === 'FeatureCollection'
-      ? data
-      : { type: 'Feature', geometry: data, properties: {} };
-    try {
-      const layer = L.geoJSON(featureData, {
-        style: typeof style === 'function' ? style : () => style,
-        onEachFeature: (feature, lyr) => {
-          if (eventHandlers) {
-            Object.entries(eventHandlers).forEach(([ev, fn]) => lyr.on(ev, fn));
-          }
-        },
-      });
-      layer.addTo(map);
-      return () => { try { map.removeLayer(layer); } catch(e) {} };
-    } catch(e) { console.error('GeoJsonLayer error:', e); }
-  }, [map, dataStr]);
-  return null;
-}
-
 
 export default function ZoneMap({ selectedCountry }) {
   const [zones, setZones] = useState([]);
@@ -215,16 +190,13 @@ export default function ZoneMap({ selectedCountry }) {
           <ClickH onClick={onMapClick} />
 
           {selectedCountry?.boundary_geojson && (
-            <GeoJsonLayer key="country-boundary" data={selectedCountry.boundary_geojson}
-              style={{ color: '#1a1a2e', weight: 4, fillColor: '#1a1a2e', fillOpacity: 0.05, dashArray: null }} />
+            <GeoJSON key={`country-${selectedCountry.id}-${(selectedCountry.boundary_geojson?.type||"")}`} data={selectedCountry.boundary_geojson} style={{ color: '#1a1a2e', weight: 4, fillColor: '#1a1a2e', fillOpacity: 0.05 }} />
           )}
 
           {regions.filter(r => r.boundary_geojson).map((r) => {
             const color = REGION_COLORS[r.id % REGION_COLORS.length];
             return (
-              <GeoJsonLayer key={`rg-${r.id}`} data={r.boundary_geojson}
-                style={{ color, weight: 3, fillColor: color, fillOpacity: 0.15, dashArray: '8,4' }}
-                eventHandlers={{ click: () => { if (!drawing) { setSelRegion(r.id); setSelDistrict(null); } } }} />
+              <GeoJSON key={`rg-${r.id}-${r.boundary_geojson?.type||""}`} data={r.boundary_geojson} style={() => ({ color, weight: 3, fillColor: color, fillOpacity: 0.2, dashArray: '8,4' })} eventHandlers={{ click: () => { if (!drawing) { setSelRegion(r.id); setSelDistrict(null); } } }} />
             );
           })}
 
@@ -232,10 +204,10 @@ export default function ZoneMap({ selectedCountry }) {
             const isSel = selDistrict === d.id;
             const col = isSel ? '#6c63ff' : (i % 2 === 0 ? '#888' : '#aaa');
             return d.boundary_geojson ? (
-              <GeoJsonLayer key={`d-${d.id}`} data={d.boundary_geojson} style={{
+              <GeoJSON key={`d-${d.id}-${d.boundary_geojson?.type||""}`} data={d.boundary_geojson} style={() => ({
                 color: col, weight: isSel ? 3 : 2, fillColor: isSel ? '#6c63ff' : '#ccc',
-                fillOpacity: isSel ? 0.15 : 0.08, dashArray: d.locked ? '8,4' : undefined,
-              }} eventHandlers={{
+                fillOpacity: isSel ? 0.25 : 0.12, dashArray: d.locked ? '8,4' : undefined,
+              })} eventHandlers={{
                 click: () => { if (!drawing) { setSelDistrict(isSel ? null : d.id); setSelRegion(d.region_id); } },
               }} />
             ) : null;
@@ -248,11 +220,11 @@ export default function ZoneMap({ selectedCountry }) {
             if (isEdit) return null;
             if (zone.boundary_geojson) {
               return (
-                <GeoJsonLayer key={zone.id} data={zone.boundary_geojson} style={{
+                <GeoJSON key={`z-${zone.id}-${zone.boundary_geojson?.type||""}`} data={zone.boundary_geojson} style={() => ({
                   color: isSel ? '#fff' : color, weight: isSel ? 3 : 1.5,
-                  fillColor: color, fillOpacity: isSel ? 0.5 : 0.25,
+                  fillColor: color, fillOpacity: isSel ? 0.5 : 0.3,
                   dashArray: zone.locked ? '4,4' : undefined,
-                }} eventHandlers={{ click: () => { if (!drawing) setSelectedZone(zone); } }} />
+                })} eventHandlers={{ click: () => { if (!drawing) setSelectedZone(zone); } }} />
               );
             }
             return (

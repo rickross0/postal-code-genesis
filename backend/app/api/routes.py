@@ -717,6 +717,22 @@ async def update_zone(
     )
 
 
+@router.delete("/zones/{zone_id}")
+async def delete_zone(
+    zone_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a zone by ID."""
+    from sqlalchemy import select
+    result = await db.execute(select(PostalZone).where(PostalZone.id == zone_id))
+    zone = result.scalar_one_or_none()
+    if not zone:
+        raise HTTPException(404, "Zone not found")
+    await db.delete(zone)
+    await db.flush()
+    return {"detail": "Zone deleted", "id": zone_id}
+
+
 # ── Exports ───────────────────────────────────────────────
 
 @router.get("/countries/{country_id}/zones/export")

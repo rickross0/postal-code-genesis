@@ -177,7 +177,7 @@ class USSDRequest(BaseModel):
 
 
 class USSDResponse(BaseModel):
-    session_id: str
+    session_id: Optional[str] = None
     text: str
     response_type: str
 

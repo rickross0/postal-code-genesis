@@ -293,6 +293,8 @@ async def auto_create_zones(
             area_sq_km=z.get("area_sq_km"),
             population=z.get("population"),
             status=zone_db.status,
+            region_name=region.name,
+            district_name=district.name,
         ))
 
     return created_zones
@@ -779,34 +781,37 @@ async def ussd_handler(request: USSDRequest, db: AsyncSession = Depends(get_db))
     parts = request.text.split("*") if request.text else []
     level = len(parts)
     service = LookupService(db)
+    sid = request.session_id or "ussd-session"
 
     if level == 0:
         return USSDResponse(
-            response="CON Welcome to Postal Code Lookup\n1. Search by area name\n2. Verify a postal code",
-            type="CON",
+            session_id=sid,
+            text="CON Welcome to Postal Code Lookup\n1. Search by area name\n2. Verify a postal code",
+            response_type="CON",
         )
     elif level == 1 and parts[0] == "1":
-        return USSDResponse(response="CON Enter area/village name:", type="CON")
+        return USSDResponse(session_id=sid, text="CON Enter area/village name:", response_type="CON")
     elif level == 1 and parts[0] == "2":
-        return USSDResponse(response="CON Enter postal code to verify:", type="CON")
+        return USSDResponse(session_id=sid, text="CON Enter postal code to verify:", response_type="CON")
     elif level == 2 and parts[0] == "1":
         results = await service.lookup_by_name(parts[1], "SSD")
         if results["zone_results"]:
             text = "END Results:\n"
             for i, r in enumerate(results["zone_results"][:3]):
                 text += f"{i+1}. {r['zone_name']}: {r['postal_code']}\n"
-            return USSDResponse(response=text, type="END")
-        return USSDResponse(response=f"END No postal code found for '{parts[1]}'.", type="END")
+            return USSDResponse(session_id=sid, text=text, response_type="END")
+        return USSDResponse(session_id=sid, text=f"END No postal code found for '{parts[1]}'.", response_type="END")
     elif level == 2 and parts[0] == "2":
         result = await service.verify_code(parts[1])
         if result and result.get("valid"):
             return USSDResponse(
-                response=f"END Valid: {result['postal_code']}\nArea: {result['name']}\nDistrict: {result['district']}",
-                type="END",
+                session_id=sid,
+                text=f"END Valid: {result['postal_code']}\nArea: {result['name']}\nDistrict: {result['district']}",
+                response_type="END",
             )
-        return USSDResponse(response=f"END Invalid code: {parts[1]}", type="END")
+        return USSDResponse(session_id=sid, text=f"END Invalid code: {parts[1]}", response_type="END")
     else:
-        return USSDResponse(response="END Invalid option. Try again.", type="END")
+        return USSDResponse(session_id=sid, text="END Invalid option. Try again.", response_type="END")
 
 
 # ── Policy ────────────────────────────────────────────────

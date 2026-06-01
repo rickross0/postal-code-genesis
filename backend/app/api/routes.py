@@ -743,6 +743,83 @@ async def create_region(
     return {"id": region.id, "name": region.name, "code": region.code, "locked": False}
 
 
+@router.post("/countries/{country_id}/regions/auto-create")
+async def auto_create_regions(
+    country_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Auto-generate regions for a country based on num_regions."""
+    from sqlalchemy import select, text
+    from geoalchemy2.shape import from_shape, to_shape
+    from shapely.geometry import Point, shape, box, mapping as shapely_mapping
+    import math
+
+    country_res = await db.execute(select(Country).where(Country.id == country_id))
+    country = country_res.scalar_one_or_none()
+    if not country:
+        raise HTTPException(404, "Country not found")
+
+    # Delete existing regions (cascades to districts and zones)
+    await db.execute(text("DELETE FROM regions WHERE country_id = :cid"), {"cid": country_id})
+
+    cap_lat = country.capital_lat or 4.85
+    cap_lng = country.capital_lng or 31.6
+    num_regions = max(country.num_regions, 1)
+
+    # Try to derive regions from country boundary
+    country_boundary = None
+    if country.boundary is not None:
+        try:
+            country_boundary = to_shape(country.boundary)
+        except Exception:
+            pass
+
+    created = []
+    for ri in range(1, num_regions + 1):
+        rcode = f"{ri:02d}"
+        # Derive a center point for this region
+        if num_regions == 1:
+            reg_lat, reg_lng = cap_lat, cap_lng
+        else:
+            # Spread regions radially from capital
+            angle = (2 * math.pi * (ri - 1)) / num_regions
+            dist_deg = 0.5 * (num_regions ** 0.5)  # spread based on number of regions
+            reg_lat = cap_lat + dist_deg * math.sin(angle)
+            reg_lng = cap_lng + dist_deg * math.cos(angle) / math.cos(math.radians(cap_lat))
+
+        center_point = from_shape(Point(reg_lng, reg_lat), srid=4326)
+
+        region = Region(
+            country_id=country_id,
+            name=f"Region {rcode}",
+            code=rcode,
+            center_point=center_point,
+        )
+
+        # If country has a boundary, try to derive a region boundary
+        if country_boundary:
+            try:
+                # Simple grid subdivision for demo purposes
+                minx, miny, maxx, maxy = country_boundary.bounds
+                dx = (maxx - minx) / max(int(num_regions ** 0.5), 1)
+                dy = (maxy - miny) / max(int(num_regions ** 0.5), 1)
+                col = (ri - 1) % max(int(num_regions ** 0.5), 1)
+                row = (ri - 1) // max(int(num_regions ** 0.5), 1)
+                reg_box = box(minx + col * dx, miny + row * dy, minx + (col + 1) * dx, miny + (row + 1) * dy)
+                reg_poly = reg_box.intersection(country_boundary)
+                if not reg_poly.is_empty:
+                    region.boundary = from_shape(reg_poly, srid=4326)
+            except Exception:
+                pass
+
+        db.add(region)
+        await db.flush()
+        await db.refresh(region)
+        created.append({"id": region.id, "name": region.name, "code": region.code, "locked": False})
+
+    return created
+
+
 @router.put("/regions/{region_id}")
 async def update_region(
     region_id: int,
@@ -812,6 +889,98 @@ async def create_district(
     await db.flush()
     await db.refresh(district)
     return {"id": district.id, "name": district.name, "code": district.code, "locked": False}
+
+
+@router.post("/regions/{region_id}/districts/auto-create")
+async def auto_create_districts(
+    region_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Auto-generate districts for a region based on country num_districts / num_regions ratio."""
+    from sqlalchemy import select, text
+    from geoalchemy2.shape import from_shape, to_shape
+    from shapely.geometry import Point, shape, box, mapping as shapely_mapping
+    import math
+
+    region_res = await db.execute(select(Region).where(Region.id == region_id))
+    region = region_res.scalar_one_or_none()
+    if not region:
+        raise HTTPException(404, "Region not found")
+
+    country_res = await db.execute(select(Country).where(Country.id == region.country_id))
+    country = country_res.scalar_one_or_none()
+    if not country:
+        raise HTTPException(404, "Country not found")
+
+    # Delete existing districts for this region (cascades to zones)
+    await db.execute(text("DELETE FROM districts WHERE region_id = :rid"), {"rid": region_id})
+
+    cap_lat = country.capital_lat or 4.85
+    cap_lng = country.capital_lng or 31.6
+    num_regions = max(country.num_regions, 1)
+    num_districts_total = max(country.num_districts, 1)
+    districts_per_region = max(num_districts_total // num_regions, 1)
+
+    # Derive region boundary or center
+    region_boundary = None
+    if region.boundary is not None:
+        try:
+            region_boundary = to_shape(region.boundary)
+        except Exception:
+            pass
+
+    reg_center_lat = cap_lat
+    reg_center_lng = cap_lng
+    if region.center_point is not None:
+        try:
+            cp = to_shape(region.center_point)
+            reg_center_lat = cp.y
+            reg_center_lng = cp.x
+        except Exception:
+            pass
+
+    created = []
+    for di in range(1, districts_per_region + 1):
+        dcode = f"{region.code}{di:02d}"
+        # Derive a center point for this district
+        if districts_per_region == 1:
+            dist_lat, dist_lng = reg_center_lat, reg_center_lng
+        else:
+            angle = (2 * math.pi * (di - 1)) / districts_per_region
+            dist_deg = 0.3 * (districts_per_region ** 0.5)
+            dist_lat = reg_center_lat + dist_deg * math.sin(angle)
+            dist_lng = reg_center_lng + dist_deg * math.cos(angle) / math.cos(math.radians(reg_center_lat))
+
+        center_point = from_shape(Point(dist_lng, dist_lat), srid=4326)
+
+        district = District(
+            region_id=region_id,
+            name=f"District {dcode}",
+            code=dcode,
+            center_point=center_point,
+        )
+
+        # If region has a boundary, try to derive a district boundary
+        if region_boundary:
+            try:
+                minx, miny, maxx, maxy = region_boundary.bounds
+                dx = (maxx - minx) / max(int(districts_per_region ** 0.5), 1)
+                dy = (maxy - miny) / max(int(districts_per_region ** 0.5), 1)
+                col = (di - 1) % max(int(districts_per_region ** 0.5), 1)
+                row = (di - 1) // max(int(districts_per_region ** 0.5), 1)
+                dist_box = box(minx + col * dx, miny + row * dy, minx + (col + 1) * dx, miny + (row + 1) * dy)
+                dist_poly = dist_box.intersection(region_boundary)
+                if not dist_poly.is_empty:
+                    district.boundary = from_shape(dist_poly, srid=4326)
+            except Exception:
+                pass
+
+        db.add(district)
+        await db.flush()
+        await db.refresh(district)
+        created.append({"id": district.id, "name": district.name, "code": district.code, "locked": False})
+
+    return created
 
 
 @router.put("/districts/{district_id}")

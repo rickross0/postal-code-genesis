@@ -26,6 +26,8 @@ export const deleteZone = (zoneId) => api.delete(`/zones/${zoneId}`);
 export const listDistricts = (countryId) => api.get(`/countries/${countryId}/districts`);
 export const createDistrict = (regionId, name, code) =>
   api.post(`/regions/${regionId}/districts?name=${encodeURIComponent(name)}&code=${code}`);
+export const autoCreateDistricts = (regionId) =>
+  api.post(`/regions/${regionId}/districts/auto-create`);
 export const updateDistrict = (districtId, data) => api.put(`/districts/${districtId}`, data);
 export const deleteDistrict = (districtId) => api.delete(`/districts/${districtId}`);
 
@@ -33,6 +35,8 @@ export const deleteDistrict = (districtId) => api.delete(`/districts/${districtI
 export const listRegions = (countryId) => api.get(`/countries/${countryId}/regions`);
 export const createRegion = (countryId, name, code) =>
   api.post(`/countries/${countryId}/regions?name=${encodeURIComponent(name)}&code=${code}`);
+export const autoCreateRegions = (countryId) =>
+  api.post(`/countries/${countryId}/regions/auto-create`);
 export const updateRegion = (regionId, data) => api.put(`/regions/${regionId}`, data);
 export const deleteRegion = (regionId) => api.delete(`/regions/${regionId}`);
 

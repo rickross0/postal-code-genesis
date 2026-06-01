@@ -4,8 +4,8 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import {
   listZones, updateZone, autoCreateAllZones, createZoneManual, listDistricts,
-  deleteZone, listRegions, createRegion, updateRegion, deleteRegion,
-  createDistrict, updateDistrict, deleteDistrict, updateCountryBoundary,
+  deleteZone, listRegions, createRegion, updateRegion, deleteRegion, autoCreateRegions,
+  createDistrict, updateDistrict, deleteDistrict, autoCreateDistricts, updateCountryBoundary,
 } from '../services/api';
 
 const ZONE_COLORS = [
@@ -215,6 +215,18 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     catch (err) { alert('Failed: ' + (err.response?.data?.detail || err.message)); }
   }, [selectedCountry, loadData]);
 
+  const handleAutoRegions = useCallback(async () => {
+    if (!window.confirm('Auto-generate regions for this country? This replaces all existing regions, districts, and zones.')) return;
+    try { await autoCreateRegions(selectedCountry.id); await loadData(); }
+    catch (err) { alert('Failed: ' + (err.response?.data?.detail || err.message)); }
+  }, [selectedCountry, loadData]);
+
+  const handleAutoDistricts = useCallback(async (regionId) => {
+    if (!window.confirm('Auto-generate districts for this region? This replaces existing districts and zones in this region.')) return;
+    try { await autoCreateDistricts(regionId); await loadData(); }
+    catch (err) { alert('Failed: ' + (err.response?.data?.detail || err.message)); }
+  }, [loadData]);
+
   const onMapClick = useCallback((e) => {
     if (movingZone) {
       handleMoveZone(movingZone, e.latlng.lat, e.latlng.lng);
@@ -251,6 +263,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         <button style={styles.btnS} onClick={() => startDraw('district', null)}>📍 District</button>
         <button style={styles.btnG} onClick={() => startDraw('zone', null)}>✏️ Zone</button>
         <button style={styles.btnG} onClick={handleAutoGen}>⚡ Auto-Fill</button>
+        <button style={styles.btnO} onClick={handleAutoRegions}>🗺 Auto Regions</button>
         {(selectedZone || selDistrict || selRegion) && (
           <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={clearSelections}>👁️‍🗨️ Hide Selection</button>
         )}
@@ -501,6 +514,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button style={styles.btnS} onClick={() => startDraw('region', regions.find(r => r.id === selRegion))}>✏️ Edit Boundary</button>
               <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenMap(prev => ({ ...prev, [`r-${selRegion}`]: true })); setSelRegion(null); }}>👁️‍🗨️ Hide</button>
+              <button style={styles.btnO} onClick={() => handleAutoDistricts(selRegion)}>📍 Auto Districts</button>
               <button style={styles.btnS} onClick={() => toggleLock('region', selRegion, regions.find(r => r.id === selRegion)?.locked)}>
                 {regions.find(r => r.id === selRegion)?.locked ? '🔓 Unlock' : '🔒 Lock'}
               </button>

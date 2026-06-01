@@ -935,6 +935,10 @@ async def update_zone(
         zone.locked = zone_update.locked
     if zone_update.color is not None:
         zone.color = zone_update.color
+    if zone_update.lat is not None and zone_update.lng is not None:
+        from geoalchemy2.shape import from_shape
+        from shapely.geometry import Point
+        zone.center_point = from_shape(Point(zone_update.lng, zone_update.lat), srid=4326)
     if zone_update.boundary_geojson is not None:
         try:
             geom = shape(zone_update.boundary_geojson)

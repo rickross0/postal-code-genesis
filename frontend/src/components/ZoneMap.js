@@ -64,6 +64,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [drawTarget, setDrawTarget] = useState(null); // 'zone','region','district','country'
   const [editItem, setEditItem] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [movingZone, setMovingZone] = useState(null);
 
   const loadData = useCallback(async () => {
     if (!selectedCountry) return;
@@ -168,6 +169,18 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     } catch (err) { alert('Color update failed: ' + (err.response?.data?.detail || err.message)); }
   }, [loadData]);
 
+  const handleMoveZone = useCallback(async (zoneId, lat, lng) => {
+    try {
+      await updateZone(zoneId, { lat, lng });
+      await loadData();
+      setSelectedZone(prev => prev ? { ...prev, center_lat: lat, center_lng: lng } : null);
+      setMovingZone(null);
+    } catch (err) {
+      alert('Move failed: ' + (err.response?.data?.detail || err.message));
+      setMovingZone(null);
+    }
+  }, [loadData]);
+
   const handleAutoGen = useCallback(async () => {
     if (!window.confirm('Auto-generate zones for ALL districts? This replaces existing zones.')) return;
     try { await autoCreateAllZones(selectedCountry.id, 5000); await loadData(); }
@@ -175,9 +188,13 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   }, [selectedCountry, loadData]);
 
   const onMapClick = useCallback((e) => {
+    if (movingZone) {
+      handleMoveZone(movingZone, e.latlng.lat, e.latlng.lng);
+      return;
+    }
     if (!drawing) return;
     setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
-  }, [drawing]);
+  }, [drawing, movingZone]);
 
   if (!selectedCountry) return <div style={styles.empty}>Select a country to view zones</div>;
 
@@ -235,13 +252,13 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                   color: isSel ? '#fff' : color, weight: isSel ? 3 : 1.5,
                   fillColor: color, fillOpacity: isSel ? 0.5 : 0.3,
                   dashArray: zone.locked ? '4,4' : undefined,
-                })} eventHandlers={{ click: () => { if (!drawing) setSelectedZone(zone); } }} />
+                })} eventHandlers={{ click: () => { if (!drawing && !movingZone) setSelectedZone(zone); } }} />
               );
             }
             return (
-              <CircleMarker key={zone.id} center={[zone.center_lat || 0, zone.center_lng || 0]} radius={10}
-                pathOptions={{ color: isSel ? '#ff6b6b' : color, fillColor: color, fillOpacity: 0.3, weight: isSel ? 3 : 2 }}
-                eventHandlers={{ click: () => { if (!drawing) setSelectedZone(zone); } }} />
+              <CircleMarker key={zone.id} center={[zone.center_lat || 0, zone.center_lng || 0]} radius={movingZone === zone.id ? 14 : 10}
+                pathOptions={{ color: movingZone === zone.id ? '#ff922b' : (isSel ? '#ff6b6b' : color), fillColor: color, fillOpacity: movingZone === zone.id ? 0.5 : 0.3, weight: movingZone === zone.id ? 4 : (isSel ? 3 : 2) }}
+                eventHandlers={{ click: () => { if (!drawing && !movingZone) setSelectedZone(zone); } }} />
             );
           })}
 
@@ -271,6 +288,16 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             {drawPoints.length >= 3 && <button style={styles.btnG} onClick={saveDraw} disabled={saving}>{saving ? 'Saving...' : '✓ Save'}</button>}
             {drawPoints.length > 0 && <button style={styles.btnS} onClick={() => setDrawPoints(p => p.slice(0, -1))}>Undo</button>}
             <button style={styles.btnD} onClick={cancelDraw}>Cancel</button>
+          </div>
+        )}
+
+        {movingZone && (
+          <div style={{ ...styles.bar, border: '2px solid #ff922b' }}>
+            <span style={{ fontWeight: 700, fontSize: 13, color: '#ff922b' }}>
+              📍 Moving {zones.find(z => z.id === movingZone)?.postal_code}
+            </span>
+            <span style={{ fontSize: 12, color: '#666' }}>Click anywhere on the map to place</span>
+            <button style={styles.btnD} onClick={() => setMovingZone(null)}>Cancel</button>
           </div>
         )}
 
@@ -336,6 +363,9 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             </div>
             <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button style={styles.btn} onClick={() => startDraw('zone', selectedZone)}>✏️ Edit</button>
+              <button style={{ ...styles.btnS, background: movingZone === selectedZone.id ? '#ffe8cc' : '#f0f0f5', color: '#ff922b', border: '1px solid #ff922b' }} onClick={() => setMovingZone(movingZone === selectedZone.id ? null : selectedZone.id)}>
+                {movingZone === selectedZone.id ? '❌ Cancel Move' : '📍 Move'}
+              </button>
               <button style={styles.btnS} onClick={() => toggleLock('zone', selectedZone.id, selectedZone.locked)}>
                 {selectedZone.locked ? '🔓 Unlock' : '🔒 Lock'}
               </button>

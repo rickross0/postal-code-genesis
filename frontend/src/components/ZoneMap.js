@@ -65,6 +65,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [editItem, setEditItem] = useState(null);
   const [saving, setSaving] = useState(false);
   const [movingZone, setMovingZone] = useState(null);
+  const [editingName, setEditingName] = useState(null); // { type, id, value }
 
   const loadData = useCallback(async () => {
     if (!selectedCountry) return;
@@ -174,6 +175,16 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     setSelDistrict(null);
     setSelRegion(null);
   }, []);
+
+  const handleNameSave = useCallback(async (type, id, name) => {
+    if (!name.trim()) return;
+    try {
+      if (type === 'region') await updateRegion(id, { name: name.trim() });
+      else if (type === 'district') await updateDistrict(id, { name: name.trim() });
+      await loadData();
+      setEditingName(null);
+    } catch (err) { alert('Rename failed: ' + (err.response?.data?.detail || err.message)); }
+  }, [loadData]);
 
   const handleMoveZone = useCallback(async (zoneId, lat, lng) => {
     try {
@@ -389,10 +400,29 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         {selDistrict && !drawing && districts.find(d => d.id === selDistrict) && (
           <div style={{ position: 'absolute', bottom: 20, left: 20, background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 6 }}>
-                📍 {districts.find(d => d.id === selDistrict)?.name}
-                {districts.find(d => d.id === selDistrict)?.locked ? ' 🔒' : ''}
-              </div>
+              {editingName?.type === 'district' && editingName?.id === selDistrict ? (
+                <input
+                  autoFocus
+                  value={editingName.value}
+                  onChange={(e) => setEditingName(prev => ({ ...prev, value: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleNameSave('district', selDistrict, editingName.value); if (e.key === 'Escape') setEditingName(null); }}
+                  onBlur={() => setEditingName(null)}
+                  style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 6, border: '1px solid #6c63ff', borderRadius: 4, padding: '2px 6px', width: '100%' }}
+                />
+              ) : (
+                <div
+                  style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 6, cursor: 'pointer' }}
+                  onClick={() => {
+                    const d = districts.find(x => x.id === selDistrict);
+                    if (!d?.locked) setEditingName({ type: 'district', id: selDistrict, value: d?.name || '' });
+                  }}
+                  title={districts.find(d => d.id === selDistrict)?.locked ? 'Locked' : 'Click to rename'}
+                >
+                  📍 {districts.find(d => d.id === selDistrict)?.name}
+                  {districts.find(d => d.id === selDistrict)?.locked ? ' 🔒' : ''}
+                  {!districts.find(d => d.id === selDistrict)?.locked && <span style={{ fontSize: 10, color: '#999', marginLeft: 4 }}>✏️</span>}
+                </div>
+              )}
               <button style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: '#999', lineHeight: 1 }} onClick={() => setSelDistrict(null)}>✕</button>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -408,10 +438,29 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         {selRegion && !drawing && regions.find(r => r.id === selRegion) && (
           <div style={{ position: 'absolute', bottom: 80, left: 20, background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 6 }}>
-                🗺️ {regions.find(r => r.id === selRegion)?.name}
-                {regions.find(r => r.id === selRegion)?.locked ? ' 🔒' : ''}
-              </div>
+              {editingName?.type === 'region' && editingName?.id === selRegion ? (
+                <input
+                  autoFocus
+                  value={editingName.value}
+                  onChange={(e) => setEditingName(prev => ({ ...prev, value: e.target.value }))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleNameSave('region', selRegion, editingName.value); if (e.key === 'Escape') setEditingName(null); }}
+                  onBlur={() => setEditingName(null)}
+                  style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 6, border: '1px solid #6c63ff', borderRadius: 4, padding: '2px 6px', width: '100%' }}
+                />
+              ) : (
+                <div
+                  style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e', marginBottom: 6, cursor: 'pointer' }}
+                  onClick={() => {
+                    const r = regions.find(x => x.id === selRegion);
+                    if (!r?.locked) setEditingName({ type: 'region', id: selRegion, value: r?.name || '' });
+                  }}
+                  title={regions.find(r => r.id === selRegion)?.locked ? 'Locked' : 'Click to rename'}
+                >
+                  🗺️ {regions.find(r => r.id === selRegion)?.name}
+                  {regions.find(r => r.id === selRegion)?.locked ? ' 🔒' : ''}
+                  {!regions.find(r => r.id === selRegion)?.locked && <span style={{ fontSize: 10, color: '#999', marginLeft: 4 }}>✏️</span>}
+                </div>
+              )}
               <button style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: '#999', lineHeight: 1 }} onClick={() => setSelRegion(null)}>✕</button>
             </div>
             <div style={{ fontSize: 11, color: '#666', marginBottom: 6 }}>

@@ -814,28 +814,59 @@ async def ussd_handler(request: USSDRequest, db: AsyncSession = Depends(get_db))
 async def generate_policy(country_id: int, db: AsyncSession = Depends(get_db)):
     """Generate policy documents for a country's postal code system."""
     from sqlalchemy import select
-    result = await db.execute(select(Country).where(Country.id == country_id))
-    country = result.scalar_one_or_none()
+    try:
+        result = await db.execute(select(Country).where(Country.id == country_id))
+        country = result.scalar_one_or_none()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Policy: DB error loading country {country_id}: {e}")
+        raise HTTPException(503, f"Database not ready: {e}")
+
     if not country:
         raise HTTPException(404, "Country not found")
 
-    profile = CountryProfileCreate(
-        name=country.name, iso_code=country.iso_code, tier=country.tier,
-        estimated_population=country.estimated_population, area_sq_km=country.area_sq_km,
-        num_regions=country.num_regions, num_districts=country.num_districts,
-        languages=json.loads(country.languages) if country.languages else [],
-        has_street_names=country.has_street_names, urban_percentage=country.urban_percentage,
-        literacy_rate=country.literacy_rate, mobile_penetration=country.mobile_penetration,
-    )
-    designer = PostalSystemDesigner(profile)
-    analysis = designer.analyze_country()
-    generator = PolicyDocumentGenerator()
-    result = generator.generate_postal_code_policy(profile, analysis)
+    try:
+        profile = CountryProfileCreate(
+            name=country.name,
+            iso_code=country.iso_code,
+            tier=country.tier if country.tier else "mixed_rural_urban",
+            estimated_population=country.estimated_population or 0,
+            area_sq_km=country.area_sq_km or 1,
+            num_regions=country.num_regions or 1,
+            num_districts=country.num_districts or 1,
+            languages=json.loads(country.languages) if country.languages else [],
+            has_street_names=bool(country.has_street_names),
+            has_house_numbers=bool(country.has_house_numbers),
+            has_any_addressing=bool(country.has_any_addressing),
+            urban_percentage=float(country.urban_percentage or 0),
+            literacy_rate=float(country.literacy_rate or 0),
+            mobile_penetration=float(country.mobile_penetration or 0),
+            internet_penetration=float(country.internet_penetration or 0),
+            existing_admin_divisions=json.loads(country.existing_admin_divisions) if country.existing_admin_divisions else {},
+            capital_city=country.capital_city,
+            capital_lat=float(country.capital_lat) if country.capital_lat else None,
+            capital_lng=float(country.capital_lng) if country.capital_lng else None,
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Policy: validation error for country {country_id}: {e}")
+        raise HTTPException(422, f"Invalid country data: {e}")
+
+    try:
+        designer = PostalSystemDesigner(profile)
+        analysis = designer.analyze_country()
+        generator = PolicyDocumentGenerator()
+        doc_result = generator.generate_postal_code_policy(profile, analysis)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Policy: generation error for country {country_id}: {e}")
+        raise HTTPException(500, f"Failed to generate policy: {e}")
+
     return PolicyDocumentResponse(
         country_id=country_id,
         title=f"National Postal Code Policy - {country.name}",
-        policy_document=result.policy_document,
-        implementation_guide=result.implementation_guide,
+        policy_document=doc_result.policy_document,
+        implementation_guide=doc_result.implementation_guide,
         sections=[],
     )
 

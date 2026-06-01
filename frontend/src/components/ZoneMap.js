@@ -51,29 +51,25 @@ function ClickH({ onClick }) { useMapEvents({ click: onClick }); return null; }
 
 function GeoJsonLayer({ data, style, eventHandlers }) {
   const map = useMap();
-  const layerRef = useRef(null);
-  const styleRef = useRef(style);
-  const handlersRef = useRef(eventHandlers);
-  styleRef.current = style;
-  handlersRef.current = eventHandlers;
+  const dataStr = useMemo(() => JSON.stringify(data), [data]);
   useEffect(() => {
-    if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
     if (!data) return;
     const featureData = data.type === 'Feature' || data.type === 'FeatureCollection'
       ? data
       : { type: 'Feature', geometry: data, properties: {} };
-    const layer = L.geoJSON(featureData, {
-      style: typeof styleRef.current === 'function' ? styleRef.current : () => styleRef.current,
-      onEachFeature: (feature, lyr) => {
-        if (handlersRef.current) {
-          Object.entries(handlersRef.current).forEach(([ev, fn]) => lyr.on(ev, fn));
-        }
-      },
-    });
-    layer.addTo(map);
-    layerRef.current = layer;
-    return () => { if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; } };
-  }, [map, data]);
+    try {
+      const layer = L.geoJSON(featureData, {
+        style: typeof style === 'function' ? style : () => style,
+        onEachFeature: (feature, lyr) => {
+          if (eventHandlers) {
+            Object.entries(eventHandlers).forEach(([ev, fn]) => lyr.on(ev, fn));
+          }
+        },
+      });
+      layer.addTo(map);
+      return () => { try { map.removeLayer(layer); } catch(e) {} };
+    } catch(e) { console.error('GeoJsonLayer error:', e); }
+  }, [map, dataStr]);
   return null;
 }
 

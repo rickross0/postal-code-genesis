@@ -68,6 +68,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [movingZone, setMovingZone] = useState(null);
   const [editingName, setEditingName] = useState(null); // { type, id, value }
   const [hiddenMap, setHiddenMap] = useState({}); // { "z-1": true, "d-2": true, "r-3": true }
+  const [countryHidden, setCountryHidden] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!selectedCountry) return;
@@ -234,7 +235,18 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         <span style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e' }}>{selectedCountry.name}</span>
         <span style={{ fontSize: 12, color: '#666' }}>({zones.length} zones, {districts.length} districts)</span>
         <div style={{ flex: 1 }} />
-        <button style={styles.btnO} onClick={() => startDraw('country', null)}>🌍 Country Border</button>
+        {selectedCountry?.boundary_geojson && !countryHidden && (
+          <>
+            <button style={{ ...styles.btnS, border: '1px solid #6c63ff', color: '#6c63ff' }} onClick={() => startDraw('country', null)}>✏️ Edit Border</button>
+            <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => setCountryHidden(true)}>👁️‍🗨️ Hide Border</button>
+          </>
+        )}
+        {countryHidden && (
+          <button style={{ ...styles.btnS, border: '1px solid #51cf66', color: '#51cf66' }} onClick={() => setCountryHidden(false)}>👁️ Show Border</button>
+        )}
+        {!selectedCountry?.boundary_geojson && (
+          <button style={styles.btnO} onClick={() => startDraw('country', null)}>🌍 Draw Border</button>
+        )}
         <button style={styles.btn} onClick={() => startDraw('region', null)}>🗺 Region</button>
         <button style={styles.btnS} onClick={() => startDraw('district', null)}>📍 District</button>
         <button style={styles.btnG} onClick={() => startDraw('zone', null)}>✏️ Zone</button>
@@ -253,7 +265,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           <FitBounds zones={zones} cid={selectedCountry.id} />
           <ClickH onClick={onMapClick} />
 
-          {selectedCountry?.boundary_geojson && (
+          {selectedCountry?.boundary_geojson && !countryHidden && (
             <GeoJSON key={`country-${selectedCountry.id}-${(selectedCountry.boundary_geojson?.type||"")}`} data={selectedCountry.boundary_geojson} style={{ color: '#6c63ff', weight: 3, fillColor: '#6c63ff', fillOpacity: 0.12 }} />
           )}
 

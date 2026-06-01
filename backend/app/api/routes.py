@@ -74,18 +74,18 @@ async def create_country(
             id=existing_country.id,
             name=existing_country.name,
             iso_code=existing_country.iso_code,
-            tier=existing_country.tier,
-            estimated_population=existing_country.estimated_population,
-            area_sq_km=existing_country.area_sq_km,
-            num_regions=existing_country.num_regions,
-            num_districts=existing_country.num_districts,
+            tier=existing_country.tier or "mixed_rural_urban",
+            estimated_population=existing_country.estimated_population or 0,
+            area_sq_km=existing_country.area_sq_km or 0,
+            num_regions=existing_country.num_regions or 1,
+            num_districts=existing_country.num_districts or 1,
             languages=profile.languages,
-            urban_percentage=existing_country.urban_percentage,
-            literacy_rate=existing_country.literacy_rate,
-            mobile_penetration=existing_country.mobile_penetration,
+            urban_percentage=float(existing_country.urban_percentage or 0),
+            literacy_rate=float(existing_country.literacy_rate or 0),
+            mobile_penetration=float(existing_country.mobile_penetration or 0),
             capital_city=existing_country.capital_city,
-            capital_lat=existing_country.capital_lat,
-            capital_lng=existing_country.capital_lng,
+            capital_lat=float(existing_country.capital_lat) if existing_country.capital_lat else None,
+            capital_lng=float(existing_country.capital_lng) if existing_country.capital_lng else None,
         )
     country = Country(
         name=profile.name,
@@ -140,13 +140,14 @@ async def list_countries(db: AsyncSession = Depends(get_db)):
         raise HTTPException(503, f"Database not ready: {e}")
     return [
         CountryProfileResponse(
-            id=c.id, name=c.name, iso_code=c.iso_code, tier=c.tier,
-            estimated_population=c.estimated_population, area_sq_km=c.area_sq_km,
-            num_regions=c.num_regions, num_districts=c.num_districts,
+            id=c.id, name=c.name, iso_code=c.iso_code, tier=c.tier or "mixed_rural_urban",
+            estimated_population=c.estimated_population or 0, area_sq_km=c.area_sq_km or 0,
+            num_regions=c.num_regions or 1, num_districts=c.num_districts or 1,
             languages=json.loads(c.languages) if c.languages else [],
-            urban_percentage=c.urban_percentage, literacy_rate=c.literacy_rate,
-            mobile_penetration=c.mobile_penetration,
-            capital_city=c.capital_city, capital_lat=c.capital_lat, capital_lng=c.capital_lng,
+            urban_percentage=float(c.urban_percentage or 0), literacy_rate=float(c.literacy_rate or 0),
+            mobile_penetration=float(c.mobile_penetration or 0),
+            capital_city=c.capital_city, capital_lat=float(c.capital_lat) if c.capital_lat else None,
+            capital_lng=float(c.capital_lng) if c.capital_lng else None,
         )
         for c in countries
     ]

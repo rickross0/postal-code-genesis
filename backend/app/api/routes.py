@@ -14,6 +14,7 @@ from app.models.schemas import (
     ZoneCreate,
     ZoneUpdate,
     ZoneResponse,
+    ManualZoneCreate,
     LookupResult,
     SearchResult,
     USSDRequest,
@@ -437,6 +438,152 @@ async def auto_create_all_zones(
                 ))
 
     return all_zones
+
+
+@router.post("/countries/{country_id}/zones/create", response_model=ZoneResponse)
+async def create_zone_manual(
+    country_id: int,
+    zone_data: ManualZoneCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a single zone by drawing a polygon on the map. Auto-assigns postal code."""
+    from sqlalchemy import select, text
+    from geoalchemy2.shape import from_shape
+    from shapely.geometry import shape, Point
+
+    # Validate country
+    country_res = await db.execute(select(Country).where(Country.id == country_id))
+    country = country_res.scalar_one_or_none()
+    if not country:
+        raise HTTPException(404, "Country not found")
+
+    # Parse boundary polygon
+    try:
+        boundary_geom = shape(zone_data.boundary_geojson)
+        if not boundary_geom.is_valid:
+            boundary_geom = boundary_geom.buffer(0)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid boundary GeoJSON: {e}")
+
+    # Get or create district
+    district = None
+    if zone_data.district_id:
+        dist_res = await db.execute(select(District).where(District.id == zone_data.district_id))
+        district = dist_res.scalar_one_or_none()
+    elif zone_data.region_code and zone_data.district_code:
+        region_res = await db.execute(
+            select(Region).where(Region.country_id == country_id, Region.code == zone_data.region_code)
+        )
+        region = region_res.scalar_one_or_none()
+        if not region:
+            region = Region(
+                country_id=country_id, name=f"Region {zone_data.region_code}",
+                code=zone_data.region_code,
+            )
+            db.add(region)
+            await db.flush()
+        dist_res = await db.execute(
+            select(District).where(District.region_id == region.id, District.code == zone_data.district_code)
+        )
+        district = dist_res.scalar_one_or_none()
+        if not district:
+            district = District(
+                region_id=region.id, name=f"District {zone_data.district_code}",
+                code=zone_data.district_code,
+            )
+            db.add(district)
+            await db.flush()
+
+    if not district:
+        # Get or create default region/district
+        region_res = await db.execute(
+            select(Region).where(Region.country_id == country_id).order_by(Region.id)
+        )
+        region = region_res.scalars().first()
+        if not region:
+            region = Region(country_id=country_id, name="Default Region", code="01")
+            db.add(region)
+            await db.flush()
+        district = District(region_id=region.id, name="Default District", code="0101")
+        db.add(district)
+        await db.flush()
+
+    # Calculate the next postal code for this district
+    prefix = district.code if district.code else "01"
+    existing = await db.execute(text(
+        "SELECT postal_code FROM postal_zones WHERE district_id = :did ORDER BY postal_code DESC LIMIT 1"
+    ), {"did": district.id})
+    last_code = existing.scalar_one_or_none()
+    if last_code and len(last_code) > len(prefix):
+        try:
+            next_num = int(last_code[len(prefix):]) + 1
+        except ValueError:
+            next_num = 1
+    else:
+        next_num = 1
+
+    postal_code = f"{prefix}{next_num:02d}"
+
+    # Check for duplicate and increment if needed
+    while True:
+        dup_check = await db.execute(text(
+            "SELECT id FROM postal_zones WHERE postal_code = :code"
+        ), {"code": postal_code})
+        if not dup_check.scalar_one_or_none():
+            break
+        next_num += 1
+        postal_code = f"{prefix}{next_num:02d}"
+
+    # Compute area
+    area_sq_km = 0.0
+    try:
+        from pyproj import Geod
+        geod = Geod(ellps="WGS84")
+        area, _ = geod.geometry_area_perimeter(boundary_geom)
+        area_sq_km = abs(area) / 1_000_000
+    except Exception:
+        pass
+
+    # Create the zone
+    zone_name = zone_data.name or f"Zone {postal_code}"
+    zone = PostalZone(
+        district_id=district.id,
+        postal_code=postal_code,
+        name=zone_name,
+        population=zone_data.population or 0,
+        boundary=from_shape(boundary_geom, srid=4326),
+        center_point=from_shape(boundary_geom.centroid, srid=4326),
+        area_sq_km=area_sq_km,
+    )
+    db.add(zone)
+    await db.flush()
+    await db.refresh(zone)
+
+    # Fetch full zone data for response
+    fresh = await db.execute(text("""
+        SELECT pz.id, pz.postal_code, pz.name, pz.status,
+               ST_Y(pz.center_point) AS center_lat,
+               ST_X(pz.center_point) AS center_lng,
+               pz.area_sq_km, pz.population,
+               d.name AS district_name, r.name AS region_name,
+               ST_AsGeoJSON(pz.boundary) AS boundary_geojson
+        FROM postal_zones pz
+        JOIN districts d ON pz.district_id = d.id
+        JOIN regions r ON d.region_id = r.id
+        WHERE pz.id = :zid
+    """), {"zid": zone.id})
+    row = fresh.mappings().first()
+    if not row:
+        raise HTTPException(500, "Zone created but could not be fetched")
+
+    return ZoneResponse(
+        id=row["id"], postal_code=row["postal_code"], name=row["name"],
+        center_lat=row["center_lat"] or 0, center_lng=row["center_lng"] or 0,
+        area_sq_km=row["area_sq_km"], population=row["population"],
+        region_name=row["region_name"], district_name=row["district_name"],
+        status=row["status"],
+        boundary_geojson=json.loads(row["boundary_geojson"]) if row["boundary_geojson"] else None,
+    )
 
 
 @router.get("/countries/{country_id}/zones", response_model=List[ZoneResponse])

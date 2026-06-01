@@ -120,14 +120,27 @@ class CountryAnalysisResponse(BaseModel):
 
 
 class ZoneCreate(BaseModel):
-    name: str
-    code: str
+    name: Optional[str] = None
+    code: Optional[str] = None
     region_code: Optional[str] = None
     district_code: Optional[str] = None
+    district_id: Optional[int] = None
     population: Optional[int] = 0
     area_sq_km: Optional[float] = 0.0
     lat: Optional[float] = None
     lng: Optional[float] = None
+    boundary_geojson: Optional[Any] = None
+
+
+class ManualZoneCreate(BaseModel):
+    """Create a zone by drawing a polygon on the map."""
+    country_id: int
+    district_id: Optional[int] = None
+    region_code: Optional[str] = None
+    district_code: Optional[str] = None
+    boundary_geojson: Any  # Required: the drawn polygon
+    name: Optional[str] = None
+    population: Optional[int] = 0
 
 
 class ZoneUpdate(BaseModel):

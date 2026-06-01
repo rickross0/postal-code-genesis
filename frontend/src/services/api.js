@@ -34,6 +34,9 @@ export const lookupCity = (query, countryCode) => api.get(`/cities/lookup?query=
 export const autoCreateAllZones = (countryId, targetPop = 5000) =>
   api.post(`/countries/${countryId}/zones/auto-create-all?target_population=${targetPop}`);
 
+export const createZoneManual = (countryId, data) =>
+  api.post(`/countries/${countryId}/zones/create`, data);
+
 export const updateZone = (zoneId, data) => api.put(`/zones/${zoneId}`, data);
 
 export default api;

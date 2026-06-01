@@ -21,6 +21,7 @@ export const createZoneManual = (countryId, data) =>
   api.post(`/countries/${countryId}/zones/create`, data);
 export const updateZone = (zoneId, data) => api.put(`/zones/${zoneId}`, data);
 export const deleteZone = (zoneId) => api.delete(`/zones/${zoneId}`);
+export const splitZone = (zoneId, lineGeojson) => api.post(`/zones/${zoneId}/split`, lineGeojson);
 
 // Districts
 export const listDistricts = (countryId) => api.get(`/countries/${countryId}/districts`);

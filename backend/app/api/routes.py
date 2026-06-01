@@ -391,13 +391,6 @@ async def auto_create_all_zones(
         region_res = await db.execute(select(Region).where(Region.country_id == country_id))
         regions = region_res.scalars().all()
 
-    # Delete existing zones for this country
-    await db.execute(text("""
-        DELETE FROM postal_zones WHERE district_id IN (
-            SELECT d.id FROM districts d JOIN regions r ON d.region_id = r.id WHERE r.country_id = :cid
-        )
-    """), {"cid": country_id})
-
     engine = ZoneCreationEngine()
     all_zones = []
 
@@ -407,6 +400,14 @@ async def auto_create_all_zones(
         districts = dist_res.scalars().all()
 
         for district in districts:
+            # Skip locked districts
+            if district.locked:
+                continue
+            # Skip districts that already have zones
+            zone_count_res = await db.execute(text("SELECT COUNT(*) FROM postal_zones WHERE district_id = :did"), {"did": district.id})
+            zone_count = zone_count_res.scalar()
+            if zone_count > 0:
+                continue
             # Get or derive district boundary
             district_boundary = None
             if district.boundary is not None:
@@ -1729,3 +1730,161 @@ async def restore_snapshot(
 
     await db.flush()
     return {"detail": "Snapshot restored", "regions": len(data.get("regions", [])), "districts": len(data.get("districts", [])), "zones": len(data.get("zones", []))}
+
+
+# ── Zone Split ───────────────────────────────────────────
+
+@router.post("/zones/{zone_id}/split")
+async def split_zone(
+    zone_id: int,
+    line_geojson: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """Split a zone into two zones using a line."""
+    from sqlalchemy import select, text
+    from geoalchemy2.shape import from_shape, to_shape
+    from shapely.geometry import shape, LineString, MultiPolygon, Polygon
+    from shapely.ops import split
+    import json
+
+    result = await db.execute(select(PostalZone).where(PostalZone.id == zone_id))
+    zone = result.scalar_one_or_none()
+    if not zone:
+        raise HTTPException(404, "Zone not found")
+    if zone.locked:
+        raise HTTPException(423, "Zone is locked. Unlock it first.")
+
+    # Parse zone boundary
+    if zone.boundary is None:
+        raise HTTPException(400, "Zone has no boundary to split")
+
+    try:
+        zone_poly = to_shape(zone.boundary)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid zone boundary: {e}")
+
+    # Parse split line
+    try:
+        line_geom = shape(line_geojson)
+        if not line_geom.is_valid:
+            line_geom = line_geom.buffer(0)
+    except Exception as e:
+        raise HTTPException(400, f"Invalid line geometry: {e}")
+
+    # Ensure line extends beyond the polygon
+    minx, miny, maxx, maxy = zone_poly.bounds
+    dx = maxx - minx
+    dy = maxy - miny
+    
+    # Extend the line
+    coords = list(line_geom.coords)
+    if len(coords) < 2:
+        raise HTTPException(400, "Line must have at least 2 points")
+    
+    # Calculate direction vector
+    x1, y1 = coords[0]
+    x2, y2 = coords[-1]
+    length = ((x2 - x1)**2 + (y2 - y1)**2) ** 0.5
+    if length == 0:
+        raise HTTPException(400, "Line has zero length")
+    
+    dx_line = (x2 - x1) / length
+    dy_line = (y2 - y1) / length
+    
+    # Extend by 2x the polygon size in each direction
+    extend = max(dx, dy) * 2
+    extended_coords = [
+        (x1 - dx_line * extend, y1 - dy_line * extend),
+        *coords[1:-1],
+        (x2 + dx_line * extend, y2 + dy_line * extend),
+    ]
+    extended_line = LineString(extended_coords)
+
+    # Split the polygon
+    try:
+        split_result = split(zone_poly, extended_line)
+    except Exception as e:
+        raise HTTPException(400, f"Failed to split zone: {e}")
+
+    # Filter valid polygons
+    pieces = []
+    for geom in split_result.geoms:
+        if isinstance(geom, Polygon) and not geom.is_empty and geom.area > 1e-12:
+            pieces.append(geom)
+        elif isinstance(geom, MultiPolygon):
+            for poly in geom.geoms:
+                if not poly.is_empty and poly.area > 1e-12:
+                    pieces.append(poly)
+
+    if len(pieces) < 2:
+        raise HTTPException(400, "Split line did not divide the zone into separate pieces")
+
+    # Use the two largest pieces
+    pieces.sort(key=lambda p: p.area, reverse=True)
+    piece_a, piece_b = pieces[0], pieces[1]
+
+    # Update original zone with first piece
+    zone.boundary = from_shape(piece_a, srid=4326)
+    zone.center_point = from_shape(piece_a.centroid, srid=4326)
+    try:
+        from pyproj import Geod
+        geod = Geod(ellps="WGS84")
+        area, _ = geod.geometry_area_perimeter(piece_a)
+        zone.area_sq_km = abs(area) / 1_000_000
+    except Exception:
+        pass
+
+    # Create second zone
+    # Get next postal code
+    prefix = zone.postal_code[:2] if len(zone.postal_code) >= 2 else "01"
+    existing = await db.execute(text(
+        "SELECT postal_code FROM postal_zones WHERE district_id = :did ORDER BY postal_code DESC LIMIT 1"
+    ), {"did": zone.district_id})
+    last_code = existing.scalar_one_or_none()
+    if last_code and len(last_code) > len(prefix):
+        try:
+            next_num = int(last_code[len(prefix):]) + 1
+        except ValueError:
+            next_num = 1
+    else:
+        next_num = 1
+    new_postal_code = f"{prefix}{next_num:02d}"
+
+    # Ensure unique
+    while True:
+        dup_check = await db.execute(text("SELECT id FROM postal_zones WHERE postal_code = :code"), {"code": new_postal_code})
+        if not dup_check.scalar_one_or_none():
+            break
+        next_num += 1
+        new_postal_code = f"{prefix}{next_num:02d}"
+
+    new_zone = PostalZone(
+        district_id=zone.district_id,
+        postal_code=new_postal_code,
+        name=f"{zone.name} B",
+        status="active",
+        population=zone.population // 2 if zone.population else None,
+        boundary=from_shape(piece_b, srid=4326),
+        center_point=from_shape(piece_b.centroid, srid=4326),
+    )
+    try:
+        from pyproj import Geod
+        geod = Geod(ellps="WGS84")
+        area, _ = geod.geometry_area_perimeter(piece_b)
+        new_zone.area_sq_km = abs(area) / 1_000_000
+    except Exception:
+        pass
+
+    db.add(new_zone)
+    await db.flush()
+    await db.refresh(new_zone)
+
+    # Update original zone name
+    zone.name = f"{zone.name} A"
+    await db.flush()
+
+    return {
+        "detail": "Zone split successfully",
+        "original_zone": {"id": zone.id, "postal_code": zone.postal_code, "name": zone.name},
+        "new_zone": {"id": new_zone.id, "postal_code": new_zone.postal_code, "name": new_zone.name},
+    }

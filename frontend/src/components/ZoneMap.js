@@ -6,7 +6,7 @@ import {
   listZones, updateZone, autoCreateAllZones, createZoneManual, listDistricts,
   deleteZone, listRegions, createRegion, updateRegion, deleteRegion, autoCreateRegions, deleteAllRegions,
   createDistrict, updateDistrict, deleteDistrict, autoCreateDistricts, updateCountryBoundary,
-  saveSnapshot, listSnapshots, restoreSnapshot,
+  saveSnapshot, listSnapshots, restoreSnapshot, splitZone,
 } from '../services/api';
 
 const ZONE_COLORS = [
@@ -115,9 +115,21 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const cancelDraw = useCallback(() => { setDrawing(false); setDrawPoints([]); setEditItem(null); setDrawTarget(null); }, []);
 
   const saveDraw = useCallback(async () => {
-    if (drawPoints.length < 3) { alert('Need at least 3 points.'); return; }
+    if (drawTarget === 'split') {
+      if (drawPoints.length < 2) { alert('Need at least 2 points for a split line.'); return; }
+    } else if (drawPoints.length < 3) { alert('Need at least 3 points.'); return; }
     setSaving(true);
     try {
+      if (drawTarget === 'split') {
+        const coordinates = drawPoints.map(p => [p[1], p[0]]);
+        const lineGeojson = { type: 'LineString', coordinates };
+        await splitZone(editItem.id, lineGeojson);
+        setDrawing(false); setDrawPoints([]); setEditItem(null); setDrawTarget(null);
+        await loadData();
+        setSaving(false);
+        return;
+      }
+
       const closed = [...drawPoints, drawPoints[0]];
       const coordinates = [closed.map(p => [p[1], p[0]])];
       const geojson = { type: 'Polygon', coordinates };
@@ -381,8 +393,17 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
 
           {drawing && drawPoints.length > 0 && (
             <>
-              <Polygon positions={drawPoints} pathOptions={{ color: '#ff6b6b', dashArray: '5,8', fillColor: '#ff6b6b', fillOpacity: 0.15, weight: 2 }} />
-              {drawPoints.map((p, i) => <CircleMarker key={`p-${i}`} center={p} radius={5} pathOptions={{ color: '#ff6b6b', fillColor: '#ff6b6b', fillOpacity: 1, weight: 1 }} />)}
+              {drawTarget === 'split' ? (
+                <>
+                  <Polygon positions={drawPoints} pathOptions={{ color: '#ff6b6b', dashArray: '5,8', weight: 3 }} />
+                  {drawPoints.map((p, i) => <CircleMarker key={`p-${i}`} center={p} radius={5} pathOptions={{ color: '#ff6b6b', fillColor: '#ff6b6b', fillOpacity: 1, weight: 1 }} />)}
+                </>
+              ) : (
+                <>
+                  <Polygon positions={drawPoints} pathOptions={{ color: '#ff6b6b', dashArray: '5,8', fillColor: '#ff6b6b', fillOpacity: 0.15, weight: 2 }} />
+                  {drawPoints.map((p, i) => <CircleMarker key={`p-${i}`} center={p} radius={5} pathOptions={{ color: '#ff6b6b', fillColor: '#ff6b6b', fillOpacity: 1, weight: 1 }} />)}
+                </>
+              )}
             </>
           )}
         </MapContainer>
@@ -390,10 +411,12 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         {drawing && (
           <div style={styles.bar}>
             <span style={{ fontWeight: 700, fontSize: 13, color: '#6c63ff' }}>
-              {editItem ? `Edit ${drawTarget}: ${editItem.postal_code || editItem.name}` : `Draw new ${drawTarget}`}
+              {drawTarget === 'split'
+                ? (editItem ? `Split ${editItem.postal_code}: draw a line across the zone` : 'Draw split line')
+                : (editItem ? `Edit ${drawTarget}: ${editItem.postal_code || editItem.name}` : `Draw new ${drawTarget}`)}
             </span>
             <span style={{ fontSize: 12, color: '#666' }}>{drawPoints.length} pts</span>
-            {drawPoints.length >= 3 && <button style={styles.btnG} onClick={saveDraw} disabled={saving}>{saving ? 'Saving...' : '✓ Save'}</button>}
+            {(drawTarget === 'split' ? drawPoints.length >= 2 : drawPoints.length >= 3) && <button style={styles.btnG} onClick={saveDraw} disabled={saving}>{saving ? 'Saving...' : '✓ Save'}</button>}
             {drawPoints.length > 0 && <button style={styles.btnS} onClick={() => setDrawPoints(p => p.slice(0, -1))}>Undo</button>}
             <button style={styles.btnD} onClick={cancelDraw}>Cancel</button>
           </div>
@@ -476,6 +499,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             </div>
             <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button style={styles.btn} onClick={() => startDraw('zone', selectedZone)}>✏️ Edit</button>
+              <button style={{ ...styles.btnS, background: '#fff3e0', color: '#e65100', border: '1px solid #ff9800' }} onClick={() => startDraw('split', selectedZone)}>✂️ Split</button>
               <button style={{ ...styles.btnS, background: movingZone === selectedZone.id ? '#ffe8cc' : '#f0f0f5', color: '#ff922b', border: '1px solid #ff922b' }} onClick={() => setMovingZone(movingZone === selectedZone.id ? null : selectedZone.id)}>
                 {movingZone === selectedZone.id ? '❌ Cancel Move' : '📍 Move'}
               </button>

@@ -65,6 +65,7 @@ function useMapScreenshot() {
       scale: 2,
       logging: false,
       backgroundColor: '#f0f0f5',
+      foreignObjectRendering: true,
     });
     return canvas.toDataURL('image/png');
   };

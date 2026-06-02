@@ -69,6 +69,8 @@ function useMapScreenshot() {
       useCORS: true,
       allowTaint: true,
       scale: 2,
+      scrollX: 0,
+      scrollY: 0,
       logging: false,
       backgroundColor: '#f0f0f5',
     });
@@ -527,12 +529,21 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       const mapContainerEl = mapInstance ? mapInstance.getContainer() : mapWrapRef.current;
       const imgData = await captureMap(mapContainerEl);
 
+      // Get natural dimensions to preserve aspect ratio
+      const img = new Image();
+      img.src = imgData;
+      await new Promise(resolve => { img.onload = resolve; });
+      const aspectRatio = img.width / img.height;
+
       // Full-page map image with small margins, preserving aspect ratio
       let imgW = pageW - margin * 2;
-      let imgH = imgW * 0.75; // A4 aspect ratio is ~1.414, so map ~0.75 is typical landscape feel
+      let imgH = imgW / aspectRatio;
       const maxH = pageH - margin * 2;
-      if (imgH > maxH) imgH = maxH;
-      const imgX = margin;
+      if (imgH > maxH) {
+        imgH = maxH;
+        imgW = imgH * aspectRatio;
+      }
+      const imgX = (pageW - imgW) / 2;
       const imgY = margin;
       doc.addImage(imgData, 'PNG', imgX, imgY, imgW, imgH);
 

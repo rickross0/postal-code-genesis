@@ -186,17 +186,26 @@ class ZoneResponse(BaseModel):
 
 
 class LookupResult(BaseModel):
-    postal_code: str
-    location_name: str
-    lat: float
-    lng: float
-    country: str
-    zone_id: int
+    found: Optional[bool] = None
+    postal_code: Optional[str] = None
+    location_name: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+    country: Optional[str] = None
+    zone_id: Optional[int] = None
+    nearest_code: Optional[str] = None
+    message: Optional[str] = None
+    district: Optional[str] = None
+    region: Optional[str] = None
+    nearby_landmarks: Optional[List[Dict[str, Any]]] = None
+    full_address_suggestion: Optional[str] = None
 
 
 class SearchResult(BaseModel):
-    query: str
-    results: List[LookupResult]
+    query: Optional[str] = None
+    results: Optional[List[LookupResult]] = None
+    zone_results: Optional[List[Dict[str, Any]]] = None
+    landmark_results: Optional[List[Dict[str, Any]]] = None
 
 
 class USSDRequest(BaseModel):

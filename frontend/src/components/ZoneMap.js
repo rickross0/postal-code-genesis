@@ -612,16 +612,13 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   }, [selectedCountry, loadData]);
 
   const handleAutoRegions = useCallback(async () => {
-    if (!window.confirm('Auto-generate regions for this country? This replaces all existing regions, districts, and zones. A snapshot will be saved first.')) return;
+    if (!window.confirm('Auto-generate regions for open areas? Existing regions will be preserved.')) return;
     try {
-      await saveSnapshot(selectedCountry.id);
       await autoCreateRegions(selectedCountry.id);
-      setUndoableRegions(true);
       await loadData();
-      await loadSnapshots();
     }
     catch (err) { alert('Failed: ' + (err.response?.data?.detail || err.message)); }
-  }, [selectedCountry, loadData, loadSnapshots]);
+  }, [selectedCountry, loadData]);
 
   const handleUndoRegions = useCallback(async () => {
     if (!window.confirm('Undo auto-regions? This deletes ALL regions, districts, and zones for this country.')) return;

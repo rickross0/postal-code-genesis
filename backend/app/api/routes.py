@@ -749,10 +749,11 @@ async def auto_create_regions(
     country_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Auto-generate regions for a country based on num_regions."""
+    """Auto-generate regions for a country, preserving existing regions and filling open areas."""
     from sqlalchemy import select, text
     from geoalchemy2.shape import from_shape, to_shape
-    from shapely.geometry import Point, shape, box, mapping as shapely_mapping
+    from shapely.geometry import Point, shape, box, mapping as shapely_mapping, MultiPolygon
+    from shapely.ops import unary_union
     import math
 
     country_res = await db.execute(select(Country).where(Country.id == country_id))
@@ -760,8 +761,10 @@ async def auto_create_regions(
     if not country:
         raise HTTPException(404, "Country not found")
 
-    # Delete existing regions (cascades to districts and zones)
-    await db.execute(text("DELETE FROM regions WHERE country_id = :cid"), {"cid": country_id})
+    # Load existing regions (preserve them)
+    existing_res = await db.execute(select(Region).where(Region.country_id == country_id))
+    existing_regions = existing_res.scalars().all()
+    existing_count = len(existing_regions)
 
     cap_lat = country.capital_lat or 4.85
     cap_lng = country.capital_lng or 31.6
@@ -775,50 +778,116 @@ async def auto_create_regions(
         except Exception:
             pass
 
-    created = []
-    for ri in range(1, num_regions + 1):
-        rcode = f"{ri:02d}"
-        # Derive a center point for this region
-        if num_regions == 1:
-            reg_lat, reg_lng = cap_lat, cap_lng
-        else:
-            # Spread regions radially from capital
-            angle = (2 * math.pi * (ri - 1)) / num_regions
-            dist_deg = 0.5 * (num_regions ** 0.5)  # spread based on number of regions
-            reg_lat = cap_lat + dist_deg * math.sin(angle)
-            reg_lng = cap_lng + dist_deg * math.cos(angle) / math.cos(math.radians(cap_lat))
-
-        center_point = from_shape(Point(reg_lng, reg_lat), srid=4326)
-
-        region = Region(
-            country_id=country_id,
-            name=f"Region {rcode}",
-            code=rcode,
-            center_point=center_point,
-        )
-
-        # If country has a boundary, try to derive a region boundary
-        if country_boundary:
+    # Calculate uncovered area (country minus existing region boundaries)
+    uncovered = None
+    if country_boundary:
+        existing_polys = []
+        for reg in existing_regions:
+            if reg.boundary is not None:
+                try:
+                    reg_geom = to_shape(reg.boundary)
+                    if reg_geom and not reg_geom.is_empty:
+                        existing_polys.append(reg_geom)
+                except Exception:
+                    pass
+        if existing_polys:
             try:
-                # Simple grid subdivision for demo purposes
-                minx, miny, maxx, maxy = country_boundary.bounds
-                dx = (maxx - minx) / max(int(num_regions ** 0.5), 1)
-                dy = (maxy - miny) / max(int(num_regions ** 0.5), 1)
-                col = (ri - 1) % max(int(num_regions ** 0.5), 1)
-                row = (ri - 1) // max(int(num_regions ** 0.5), 1)
-                reg_box = box(minx + col * dx, miny + row * dy, minx + (col + 1) * dx, miny + (row + 1) * dy)
-                reg_poly = reg_box.intersection(country_boundary)
-                if not reg_poly.is_empty:
-                    region.boundary = from_shape(reg_poly, srid=4326)
+                covered = unary_union(existing_polys)
+                if not covered.is_valid:
+                    covered = covered.buffer(0)
+                uncovered = country_boundary.difference(covered)
             except Exception:
-                pass
+                uncovered = country_boundary
+        else:
+            uncovered = country_boundary
 
-        db.add(region)
-        await db.flush()
-        await db.refresh(region)
-        created.append({"id": region.id, "name": region.name, "code": region.code, "locked": False})
+    # If nothing to fill, return early
+    if uncovered is None or uncovered.is_empty:
+        return {"detail": "No open areas to fill", "created": 0, "regions": []}
 
-    return created
+    # Filter out tiny slivers
+    if uncovered.geom_type == "Polygon":
+        if uncovered.area < 1e-8:
+            return {"detail": "No open areas to fill", "created": 0, "regions": []}
+        uncovered_polys = [uncovered]
+    elif uncovered.geom_type == "MultiPolygon":
+        uncovered_polys = [p for p in uncovered.geoms if p.area >= 1e-8]
+        if not uncovered_polys:
+            return {"detail": "No open areas to fill", "created": 0, "regions": []}
+    else:
+        try:
+            uncovered_polys = [p for p in uncovered.geoms if p.geom_type == "Polygon" and p.area >= 1e-8]
+        except Exception:
+            uncovered_polys = []
+        if not uncovered_polys:
+            return {"detail": "No open areas to fill", "created": 0, "regions": []}
+
+    # Determine how many new regions to create
+    num_new = max(1, num_regions - existing_count)
+
+    created = []
+    # Grid subdivision of uncovered area bounding box
+    all_bounds = [p.bounds for p in uncovered_polys]
+    minx = min(b[0] for b in all_bounds)
+    miny = min(b[1] for b in all_bounds)
+    maxx = max(b[2] for b in all_bounds)
+    maxy = max(b[3] for b in all_bounds)
+
+    cols = max(1, int(math.sqrt(num_new)))
+    rows = max(1, int(math.ceil(num_new / cols)))
+    dx = (maxx - minx) / cols if cols > 0 else (maxx - minx)
+    dy = (maxy - miny) / rows if rows > 0 else (maxy - miny)
+
+    cell_index = 0
+    for ri in range(rows):
+        for ci in range(cols):
+            if cell_index >= num_new:
+                break
+            reg_box = box(minx + ci * dx, miny + ri * dy, minx + (ci + 1) * dx, miny + (ri + 1) * dy)
+
+            # Intersect with uncovered polygons
+            pieces = []
+            for poly in uncovered_polys:
+                try:
+                    inter = reg_box.intersection(poly)
+                    if not inter.is_empty and inter.area >= 1e-8:
+                        pieces.append(inter)
+                except Exception:
+                    pass
+
+            if not pieces:
+                continue
+
+            if len(pieces) == 1:
+                reg_poly = pieces[0]
+            else:
+                try:
+                    reg_poly = unary_union(pieces)
+                except Exception:
+                    reg_poly = pieces[0]
+
+            if reg_poly.is_empty or reg_poly.area < 1e-8:
+                continue
+
+            cell_index += 1
+            rcode = f"{existing_count + cell_index:02d}"
+
+            center_point = from_shape(reg_poly.centroid, srid=4326)
+            region = Region(
+                country_id=country_id,
+                name=f"Region {rcode}",
+                code=rcode,
+                center_point=center_point,
+            )
+            if reg_poly.geom_type in ("Polygon", "MultiPolygon"):
+                region.boundary = from_shape(reg_poly, srid=4326)
+
+            db.add(region)
+            await db.flush()
+            await db.refresh(region)
+            created.append({"id": region.id, "name": region.name, "code": region.code, "locked": False})
+
+    return {"detail": f"Created {len(created)} regions in open areas", "created": len(created), "regions": created}
 
 
 @router.delete("/countries/{country_id}/regions")

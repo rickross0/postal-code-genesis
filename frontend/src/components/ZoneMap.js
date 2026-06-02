@@ -489,6 +489,25 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       const pageH = doc.internal.pageSize.getHeight();
       const margin = 14;
 
+      // Build selected area names list
+      const selectedNames = [];
+      selectedReportItems.forEach(key => {
+        const [type, idStr] = key.split('-');
+        const id = parseInt(idStr, 10);
+        if (type === 'region') {
+          const r = regions.find(x => x.id === id);
+          if (r) selectedNames.push(r.name);
+        } else if (type === 'district') {
+          const d = districts.find(x => x.id === id);
+          if (d) selectedNames.push(d.name);
+        } else if (type === 'zone') {
+          const z = zones.find(x => x.id === id);
+          if (z) selectedNames.push(`${z.postal_code || z.name} — ${z.name}`);
+        }
+      });
+      const areaLabel = selectedNames.length === 1 ? 'Selected area' : 'Selected areas';
+      const areaNamesText = selectedNames.length ? `${areaLabel}: ${selectedNames.join(', ')}` : `${areaLabel}: none`;
+
       // Cover
       doc.setFontSize(22);
       doc.setTextColor(26, 26, 46);
@@ -498,16 +517,19 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       doc.text(selectedCountry.name || 'Country', pageW / 2, 55, { align: 'center' });
       doc.setFontSize(11);
       doc.text(`Generated: ${new Date().toLocaleString()}`, pageW / 2, 65, { align: 'center' });
-      doc.text(`Selected areas: ${selectedReportItems.size}`, pageW / 2, 72, { align: 'center' });
+      const areaNameLines = doc.splitTextToSize(areaNamesText, pageW - margin * 2);
+      doc.text(areaNameLines, pageW / 2, 72, { align: 'center' });
       doc.setFontSize(9);
       doc.setTextColor(120, 120, 120);
       const formatLines = doc.splitTextToSize('Postal Code Format: RRDDNNN (Region 2 letters + District 2 letters + 3-digit number)', pageW - margin * 2);
-      doc.text(formatLines, pageW / 2, 78, { align: 'center' });
+      const formatY = 72 + (areaNameLines.length * 4.5);
+      doc.text(formatLines, pageW / 2, formatY, { align: 'center' });
 
       // Detail line
       doc.setFontSize(10);
       doc.setTextColor(80, 80, 80);
-      doc.text(`Report covers ${selectedReportItems.size} selected area(s). See following pages for map and details.`, pageW / 2, 90, { align: 'center' });
+      const detailY = formatY + (formatLines.length * 4) + 4;
+      doc.text(`Report covers ${selectedReportItems.size} selected area(s). See following pages for map and details.`, pageW / 2, detailY, { align: 'center' });
 
       // PAGE 2 — Map screenshot (dedicated page, no text overlap)
       doc.addPage();

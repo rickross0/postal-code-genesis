@@ -4,7 +4,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import {
   listZones, updateZone, autoCreateAllZones, createZoneManual, listDistricts,
   deleteZone, listRegions, createRegion, updateRegion, deleteRegion, autoCreateRegions, deleteAllRegions,
@@ -216,7 +216,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         }
       });
 
-      doc.autoTable({
+      autoTable(doc, {
         startY: 28,
         head: [['Type', 'Name', 'Code / Postal', 'Districts', 'Zones']],
         body: tableBody,
@@ -240,7 +240,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             doc.setFontSize(13);
             doc.setTextColor(26, 26, 46);
             doc.text('Districts', margin, 38);
-            doc.autoTable({
+            autoTable(doc, {
               startY: 42,
               head: [['District', 'Code', 'Zones']],
               body: item.districts.map(d => [d.name, d.code || '-', item.zones.filter(z => z.district_id === d.id).length]),
@@ -255,7 +255,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             doc.setFontSize(13);
             doc.setTextColor(26, 26, 46);
             doc.text('Postal Zones', margin, startY);
-            doc.autoTable({
+            autoTable(doc, {
               startY: startY + 4,
               head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
               body: item.zones.map(z => [
@@ -280,7 +280,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             doc.setFontSize(13);
             doc.setTextColor(26, 26, 46);
             doc.text('Postal Zones', margin, 38);
-            doc.autoTable({
+            autoTable(doc, {
               startY: 42,
               head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
               body: item.zones.map(z => [

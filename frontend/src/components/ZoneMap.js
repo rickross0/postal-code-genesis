@@ -573,6 +573,11 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         margin: { left: margin, right: margin },
       });
 
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      doc.text('* Postal Code Format: first 2 letters of Region + first 2 letters of District + 3-digit sequential number.', margin, doc.lastAutoTable.finalY + 6);
+      doc.text('  Example: Region "Central" + District "Juba" = CEJU001, CEJU002...', margin, doc.lastAutoTable.finalY + 10);
+
       // Detail pages
       reportItems.forEach(item => {
         doc.addPage();

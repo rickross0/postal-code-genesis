@@ -1848,8 +1848,12 @@ async def restore_snapshot(
 
     data = json.loads(snap.snapshot)
 
-    # Delete current regions (cascades to districts and zones)
-    await db.execute(text("DELETE FROM regions WHERE country_id = :cid"), {"cid": country_id})
+    # Delete current regions using ORM so SQLAlchemy cascades work properly
+    # Raw SQL DELETE would orphan districts and zones, causing unique constraint errors on restore
+    reg_res = await db.execute(select(Region).where(Region.country_id == country_id))
+    for reg in reg_res.scalars().all():
+        await db.delete(reg)
+    await db.flush()
 
     # Restore regions
     region_id_map = {}  # old_id -> new_id

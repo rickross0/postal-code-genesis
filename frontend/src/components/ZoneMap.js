@@ -269,12 +269,12 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
 
   const estimateCost = useCallback((area_sq_km, population) => {
     // Rough implementation cost estimate
-    // Infrastructure: $5,000 per km²
-    // Population services: $2 per person
+    // Infrastructure: $3,400 per km²
+    // Population services: $3.5 per person
     const area = parseFloat(area_sq_km) || 0;
     const pop = parseInt(population) || 0;
-    const infrastructure = area * 5000;
-    const services = pop * 2;
+    const infrastructure = area * 3400;
+    const services = pop * 3.5;
     const total = infrastructure + services;
     return {
       infrastructure,

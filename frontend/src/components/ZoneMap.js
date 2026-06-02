@@ -95,6 +95,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [hiddenMap, setHiddenMap] = useState({}); // { "z-1": true, "d-2": true, "r-3": true }
   const [countryHidden, setCountryHidden] = useState(false);
   const [undoableRegions, setUndoableRegions] = useState(false);
+  const [undoableDistricts, setUndoableDistricts] = useState({}); // { regionId: snapshotId }
   const [snapshots, setSnapshots] = useState([]);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotsVisible, setSnapshotsVisible] = useState(true);
@@ -626,6 +627,23 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     catch (err) { alert('Undo failed: ' + (err.response?.data?.detail || err.message)); }
   }, [selectedCountry, loadData]);
 
+  const handleUndoDistricts = useCallback(async (regionId) => {
+    const snapshotId = undoableDistricts[regionId];
+    if (!snapshotId) return;
+    if (!window.confirm('Undo auto-districts for this region? This restores the previous district layout.')) return;
+    try {
+      await restoreSnapshot(selectedCountry.id, snapshotId);
+      setUndoableDistricts(prev => {
+        const next = { ...prev };
+        delete next[regionId];
+        return next;
+      });
+      await loadData();
+      await loadSnapshots();
+    }
+    catch (err) { alert('Undo failed: ' + (err.response?.data?.detail || err.message)); }
+  }, [selectedCountry, loadData, loadSnapshots, undoableDistricts]);
+
   const handleSaveSnapshot = useCallback(async () => {
     try { await saveSnapshot(selectedCountry.id); await loadSnapshots(); alert('Snapshot saved!'); }
     catch (err) { alert('Save failed: ' + (err.response?.data?.detail || err.message)); }
@@ -638,10 +656,18 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   }, [selectedCountry, loadData, loadSnapshots]);
 
   const handleAutoDistricts = useCallback(async (regionId) => {
-    if (!window.confirm('Auto-generate districts for this region? This replaces existing districts and zones in this region.')) return;
-    try { await autoCreateDistricts(regionId); await loadData(); }
+    if (!window.confirm('Auto-generate districts for open areas in this region? Existing districts will be preserved.')) return;
+    try {
+      const res = await autoCreateDistricts(regionId);
+      await loadData();
+      await loadSnapshots();
+      if (res.data?.snapshot_id) {
+        setUndoableDistricts(prev => ({ ...prev, [regionId]: res.data.snapshot_id }));
+      }
+      alert(res.data?.detail || 'Districts generated');
+    }
     catch (err) { alert('Failed: ' + (err.response?.data?.detail || err.message)); }
-  }, [loadData]);
+  }, [loadData, loadSnapshots]);
 
   const onMapClick = useCallback((e) => {
     if (movingZone) {
@@ -965,6 +991,9 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
               <button style={styles.btnS} onClick={() => startDraw('region', regions.find(r => r.id === selRegion))}>✏️ Edit Boundary</button>
               <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenMap(prev => ({ ...prev, [`r-${selRegion}`]: true })); setSelRegion(null); }}>👁️‍🗨️ Hide</button>
               <button style={styles.btnO} onClick={() => handleAutoDistricts(selRegion)}>📍 Auto Districts</button>
+              {undoableDistricts[selRegion] && (
+                <button style={{ ...styles.btnD, background: '#c62828' }} onClick={() => handleUndoDistricts(selRegion)}>↩️ Undo Districts</button>
+              )}
               <button style={styles.btnS} onClick={() => toggleLock('region', selRegion, regions.find(r => r.id === selRegion)?.locked)}>
                 {regions.find(r => r.id === selRegion)?.locked ? '🔓 Unlock' : '🔒 Lock'}
               </button>

@@ -998,11 +998,14 @@ async def auto_create_districts(
     region_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Auto-generate districts for a region based on country num_districts / num_regions ratio."""
+    """Auto-generate districts for a region, preserving existing districts and filling open areas."""
     from sqlalchemy import select, text
     from geoalchemy2.shape import from_shape, to_shape
     from shapely.geometry import Point, shape, box, mapping as shapely_mapping
+    from shapely.ops import unary_union
     import math
+    import json
+    from app.models.database import DrawingSnapshot
 
     region_res = await db.execute(select(Region).where(Region.id == region_id))
     region = region_res.scalar_one_or_none()
@@ -1014,8 +1017,70 @@ async def auto_create_districts(
     if not country:
         raise HTTPException(404, "Country not found")
 
-    # Delete existing districts for this region (cascades to zones)
-    await db.execute(text("DELETE FROM districts WHERE region_id = :rid"), {"rid": region_id})
+    # Save snapshot before changes (for undo)
+    # Re-use save_snapshot logic inline for this country
+    snap_reg_res = await db.execute(text("""
+        SELECT id, name, code, locked,
+               ST_AsGeoJSON(boundary) AS boundary_geojson,
+               ST_AsGeoJSON(center_point) AS center_geojson
+        FROM regions WHERE country_id = :cid
+    """), {"cid": region.country_id})
+    snap_regions = []
+    for r in snap_reg_res.mappings().all():
+        snap_regions.append({
+            "id": r["id"], "name": r["name"], "code": r["code"], "locked": bool(r["locked"]),
+            "boundary_geojson": json.loads(r["boundary_geojson"]) if r["boundary_geojson"] else None,
+            "center_geojson": json.loads(r["center_geojson"]) if r["center_geojson"] else None,
+        })
+
+    snap_dist_res = await db.execute(text("""
+        SELECT d.id, d.name, d.code, d.region_id, d.locked,
+               ST_AsGeoJSON(d.boundary) AS boundary_geojson,
+               ST_AsGeoJSON(d.center_point) AS center_geojson
+        FROM districts d
+        JOIN regions r ON d.region_id = r.id
+        WHERE r.country_id = :cid
+    """), {"cid": region.country_id})
+    snap_districts = []
+    for d in snap_dist_res.mappings().all():
+        snap_districts.append({
+            "id": d["id"], "name": d["name"], "code": d["code"],
+            "region_id": d["region_id"], "locked": bool(d["locked"]),
+            "boundary_geojson": json.loads(d["boundary_geojson"]) if d["boundary_geojson"] else None,
+            "center_geojson": json.loads(d["center_geojson"]) if d["center_geojson"] else None,
+        })
+
+    snap_zone_res = await db.execute(text("""
+        SELECT pz.id, pz.postal_code, pz.name, pz.status, pz.population, pz.area_sq_km, pz.color, pz.locked,
+               d.id AS district_id,
+               ST_AsGeoJSON(pz.boundary) AS boundary_geojson,
+               ST_AsGeoJSON(pz.center_point) AS center_geojson
+        FROM postal_zones pz
+        JOIN districts d ON pz.district_id = d.id
+        JOIN regions r ON d.region_id = r.id
+        WHERE r.country_id = :cid
+    """), {"cid": region.country_id})
+    snap_zones = []
+    for z in snap_zone_res.mappings().all():
+        snap_zones.append({
+            "id": z["id"], "postal_code": z["postal_code"], "name": z["name"],
+            "status": z["status"], "population": z["population"], "area_sq_km": z["area_sq_km"],
+            "color": z["color"], "locked": bool(z["locked"]), "district_id": z["district_id"],
+            "boundary_geojson": json.loads(z["boundary_geojson"]) if z["boundary_geojson"] else None,
+            "center_geojson": json.loads(z["center_geojson"]) if z["center_geojson"] else None,
+        })
+
+    snap_payload = json.dumps({"regions": snap_regions, "districts": snap_districts, "zones": snap_zones})
+    snap_record = DrawingSnapshot(country_id=region.country_id, snapshot=snap_payload)
+    db.add(snap_record)
+    await db.flush()
+    await db.refresh(snap_record)
+    snapshot_id = snap_record.id
+
+    # Preserve existing districts
+    existing_res = await db.execute(select(District).where(District.region_id == region_id))
+    existing_districts = existing_res.scalars().all()
+    existing_count = len(existing_districts)
 
     cap_lat = country.capital_lat or 4.85
     cap_lng = country.capital_lng or 31.6
@@ -1031,58 +1096,123 @@ async def auto_create_districts(
         except Exception:
             pass
 
-    reg_center_lat = cap_lat
-    reg_center_lng = cap_lng
-    if region.center_point is not None:
+    # Calculate uncovered area (region minus existing districts)
+    uncovered = None
+    if region_boundary:
+        existing_polys = []
+        for dist in existing_districts:
+            if dist.boundary is not None:
+                try:
+                    dg = to_shape(dist.boundary)
+                    if dg and not dg.is_empty:
+                        existing_polys.append(dg)
+                except Exception:
+                    pass
+        if existing_polys:
+            try:
+                covered = unary_union(existing_polys)
+                if not covered.is_valid:
+                    covered = covered.buffer(0)
+                uncovered = region_boundary.difference(covered)
+            except Exception:
+                uncovered = region_boundary
+        else:
+            uncovered = region_boundary
+
+    if uncovered is None or uncovered.is_empty:
+        return {"detail": "No open areas to fill", "created": 0, "districts": [], "snapshot_id": snapshot_id}
+
+    # Filter slivers
+    if uncovered.geom_type == "Polygon":
+        if uncovered.area < 1e-8:
+            return {"detail": "No open areas to fill", "created": 0, "districts": [], "snapshot_id": snapshot_id}
+        uncovered_polys = [uncovered]
+    elif uncovered.geom_type == "MultiPolygon":
+        uncovered_polys = [p for p in uncovered.geoms if p.area >= 1e-8]
+        if not uncovered_polys:
+            return {"detail": "No open areas to fill", "created": 0, "districts": [], "snapshot_id": snapshot_id}
+    else:
         try:
-            cp = to_shape(region.center_point)
-            reg_center_lat = cp.y
-            reg_center_lng = cp.x
+            uncovered_polys = [p for p in uncovered.geoms if p.geom_type == "Polygon" and p.area >= 1e-8]
         except Exception:
-            pass
+            uncovered_polys = []
+        if not uncovered_polys:
+            return {"detail": "No open areas to fill", "created": 0, "districts": [], "snapshot_id": snapshot_id}
+
+    # Determine how many new districts to create
+    num_new = max(1, districts_per_region - existing_count)
+
+    # Combine uncovered polygons into one area for grid subdivision
+    try:
+        union_uncovered = unary_union(uncovered_polys)
+    except Exception:
+        union_uncovered = uncovered_polys[0] if uncovered_polys else None
+
+    if union_uncovered is None or union_uncovered.is_empty:
+        return {"detail": "No open areas to fill", "created": 0, "districts": [], "snapshot_id": snapshot_id}
+
+    all_bounds = [p.bounds for p in uncovered_polys]
+    minx = min(b[0] for b in all_bounds)
+    miny = min(b[1] for b in all_bounds)
+    maxx = max(b[2] for b in all_bounds)
+    maxy = max(b[3] for b in all_bounds)
+
+    cols = max(1, int(math.sqrt(num_new)))
+    rows = max(1, int(math.ceil(num_new / cols)))
+    dx = (maxx - minx) / cols if cols > 0 else (maxx - minx)
+    dy = (maxy - miny) / rows if rows > 0 else (maxy - miny)
 
     created = []
-    for di in range(1, districts_per_region + 1):
-        dcode = f"{region.code}{di:02d}"
-        # Derive a center point for this district
-        if districts_per_region == 1:
-            dist_lat, dist_lng = reg_center_lat, reg_center_lng
-        else:
-            angle = (2 * math.pi * (di - 1)) / districts_per_region
-            dist_deg = 0.3 * (districts_per_region ** 0.5)
-            dist_lat = reg_center_lat + dist_deg * math.sin(angle)
-            dist_lng = reg_center_lng + dist_deg * math.cos(angle) / math.cos(math.radians(reg_center_lat))
+    cell_index = 0
+    for ri in range(rows):
+        for ci in range(cols):
+            if cell_index >= num_new:
+                break
+            dist_box = box(minx + ci * dx, miny + ri * dy, minx + (ci + 1) * dx, miny + (ri + 1) * dy)
 
-        center_point = from_shape(Point(dist_lng, dist_lat), srid=4326)
+            # Intersect with uncovered
+            pieces = []
+            for poly in uncovered_polys:
+                try:
+                    inter = dist_box.intersection(poly)
+                    if not inter.is_empty and inter.area >= 1e-8:
+                        pieces.append(inter)
+                except Exception:
+                    pass
 
-        district = District(
-            region_id=region_id,
-            name=f"District {dcode}",
-            code=dcode,
-            center_point=center_point,
-        )
+            if not pieces:
+                continue
 
-        # If region has a boundary, try to derive a district boundary
-        if region_boundary:
-            try:
-                minx, miny, maxx, maxy = region_boundary.bounds
-                dx = (maxx - minx) / max(int(districts_per_region ** 0.5), 1)
-                dy = (maxy - miny) / max(int(districts_per_region ** 0.5), 1)
-                col = (di - 1) % max(int(districts_per_region ** 0.5), 1)
-                row = (di - 1) // max(int(districts_per_region ** 0.5), 1)
-                dist_box = box(minx + col * dx, miny + row * dy, minx + (col + 1) * dx, miny + (row + 1) * dy)
-                dist_poly = dist_box.intersection(region_boundary)
-                if not dist_poly.is_empty:
-                    district.boundary = from_shape(dist_poly, srid=4326)
-            except Exception:
-                pass
+            if len(pieces) == 1:
+                dist_poly = pieces[0]
+            else:
+                try:
+                    dist_poly = unary_union(pieces)
+                except Exception:
+                    dist_poly = pieces[0]
 
-        db.add(district)
-        await db.flush()
-        await db.refresh(district)
-        created.append({"id": district.id, "name": district.name, "code": district.code, "locked": False})
+            if dist_poly.is_empty or dist_poly.area < 1e-8:
+                continue
 
-    return created
+            cell_index += 1
+            dcode = f"{region.code}{existing_count + cell_index:02d}"
+
+            center_point = from_shape(dist_poly.centroid, srid=4326)
+            district = District(
+                region_id=region_id,
+                name=f"District {dcode}",
+                code=dcode,
+                center_point=center_point,
+            )
+            if dist_poly.geom_type in ("Polygon", "MultiPolygon"):
+                district.boundary = from_shape(dist_poly, srid=4326)
+
+            db.add(district)
+            await db.flush()
+            await db.refresh(district)
+            created.append({"id": district.id, "name": district.name, "code": district.code, "locked": False})
+
+    return {"detail": f"Created {len(created)} districts in open areas", "created": len(created), "districts": created, "snapshot_id": snapshot_id}
 
 
 @router.put("/districts/{district_id}")

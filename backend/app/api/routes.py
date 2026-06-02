@@ -32,6 +32,41 @@ from app.models.database import Country, Region, District, PostalZone, Landmark
 router = APIRouter()
 
 
+# ── Helpers ──────────────────────────────────────────────
+
+async def _generate_next_postal_code(db, district_id: int, region_name: str, district_name: str) -> str:
+    """Generate the next unique postal code for a district.
+    Format: first 2 letters of region + first 2 letters of district + 3-digit sequential number."""
+    from sqlalchemy import text
+    region_prefix = (region_name[:2] if region_name else "ZZ").upper()
+    district_prefix = (district_name[:2] if district_name else "ZZ").upper()
+    prefix = f"{region_prefix}{district_prefix}"
+
+    existing = await db.execute(text(
+        "SELECT postal_code FROM postal_zones WHERE district_id = :did AND postal_code LIKE :pat ORDER BY postal_code DESC LIMIT 1"
+    ), {"did": district_id, "pat": f"{prefix}%"})
+    last_code = existing.scalar_one_or_none()
+    if last_code and len(last_code) > len(prefix):
+        try:
+            next_num = int(last_code[len(prefix):]) + 1
+        except ValueError:
+            next_num = 1
+    else:
+        next_num = 1
+
+    postal_code = f"{prefix}{next_num:03d}"
+    while True:
+        dup_check = await db.execute(text(
+            "SELECT id FROM postal_zones WHERE postal_code = :code"
+        ), {"code": postal_code})
+        if not dup_check.scalar_one_or_none():
+            break
+        next_num += 1
+        postal_code = f"{prefix}{next_num:03d}"
+    return postal_code
+
+
+
 # ── Countries ──────────────────────────────────────────────
 
 @router.post("/countries", response_model=CountryProfileResponse, status_code=201)
@@ -302,7 +337,7 @@ async def auto_create_zones(
         estimated_population=target_population * 4,
     )
     dc = {"lat": country.capital_lat, "lng": country.capital_lng}
-    zones = engine.assign_codes(zones, district.name, dc)
+    zones = engine.assign_codes(zones, region.name, district.name, dc)
 
     created_zones = []
     for z in zones:
@@ -443,7 +478,7 @@ async def auto_create_all_zones(
                 continue
 
             dc = {"lat": cap_point.y, "lng": cap_point.x}
-            zones = engine.assign_codes(zones, district.name, dc)
+            zones = engine.assign_codes(zones, region.name, district.name, dc)
 
             for z in zones:
                 boundary_shape = shape(z.get("boundary_geojson", {})) if z.get("boundary_geojson") else None
@@ -546,31 +581,11 @@ async def create_zone_manual(
         db.add(district)
         await db.flush()
 
+    # Get region for postal code prefix
+    region_res = await db.execute(select(Region).where(Region.id == district.region_id))
+    region = region_res.scalar_one_or_none()
     # Calculate the next postal code for this district
-    prefix = district.code if district.code else "01"
-    existing = await db.execute(text(
-        "SELECT postal_code FROM postal_zones WHERE district_id = :did ORDER BY postal_code DESC LIMIT 1"
-    ), {"did": district.id})
-    last_code = existing.scalar_one_or_none()
-    if last_code and len(last_code) > len(prefix):
-        try:
-            next_num = int(last_code[len(prefix):]) + 1
-        except ValueError:
-            next_num = 1
-    else:
-        next_num = 1
-
-    postal_code = f"{prefix}{next_num:02d}"
-
-    # Check for duplicate and increment if needed
-    while True:
-        dup_check = await db.execute(text(
-            "SELECT id FROM postal_zones WHERE postal_code = :code"
-        ), {"code": postal_code})
-        if not dup_check.scalar_one_or_none():
-            break
-        next_num += 1
-        postal_code = f"{prefix}{next_num:02d}"
+    postal_code = await _generate_next_postal_code(db, district.id, region.name if region else "", district.name)
 
     # Compute area
     area_sq_km = 0.0
@@ -1905,27 +1920,15 @@ async def split_zone(
 
     # Create second zone
     # Get next postal code
-    prefix = zone.postal_code[:2] if len(zone.postal_code) >= 2 else "01"
-    existing = await db.execute(text(
-        "SELECT postal_code FROM postal_zones WHERE district_id = :did ORDER BY postal_code DESC LIMIT 1"
-    ), {"did": zone.district_id})
-    last_code = existing.scalar_one_or_none()
-    if last_code and len(last_code) > len(prefix):
-        try:
-            next_num = int(last_code[len(prefix):]) + 1
-        except ValueError:
-            next_num = 1
-    else:
-        next_num = 1
-    new_postal_code = f"{prefix}{next_num:02d}"
-
-    # Ensure unique
-    while True:
-        dup_check = await db.execute(text("SELECT id FROM postal_zones WHERE postal_code = :code"), {"code": new_postal_code})
-        if not dup_check.scalar_one_or_none():
-            break
-        next_num += 1
-        new_postal_code = f"{prefix}{next_num:02d}"
+    dist_res = await db.execute(select(District).where(District.id == zone.district_id))
+    district = dist_res.scalar_one_or_none()
+    region_res = await db.execute(select(Region).where(Region.id == district.region_id)) if district else None
+    region = region_res.scalar_one_or_none() if region_res else None
+    new_postal_code = await _generate_next_postal_code(
+        db, zone.district_id,
+        region.name if region else "",
+        district.name if district else ""
+    )
 
     new_zone = PostalZone(
         district_id=zone.district_id,

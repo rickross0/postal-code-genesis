@@ -151,13 +151,16 @@ class ZoneCreationEngine:
     def assign_codes(
         self,
         zones: List[Dict[str, Any]],
+        region_name: str,
         district_name: str,
         district_center: Optional[Dict[str, float]] = None,
         start_from: int = 1,
         reserve_percentage: float = 0.3,
     ) -> List[Dict[str, Any]]:
-        """Assign postal codes: first 2 letters = district name, middle = number, last = compass direction."""
-        prefix = (district_name[:2] if district_name else "ZZ").upper()
+        """Assign postal codes: first 2 letters = region, next 2 = district, last 3 = sequential number."""
+        region_prefix = (region_name[:2] if region_name else "ZZ").upper()
+        district_prefix = (district_name[:2] if district_name else "ZZ").upper()
+        prefix = f"{region_prefix}{district_prefix}"
         dc_lat = district_center.get("lat") if district_center else None
         dc_lng = district_center.get("lng") if district_center else None
 
@@ -173,23 +176,15 @@ class ZoneCreationEngine:
                 key=lambda z: (-z["center"]["lat"], z["center"]["lng"]),
             )
 
-        max_code = 99
+        max_code = 999
         available = max_code - start_from + 1
         usable = int(available * (1 - reserve_percentage))
         spacing = max(1, usable // max(len(zones_sorted), 1))
 
         current_code = start_from
         for zone in zones_sorted:
-            zone_code = f"{current_code:02d}"
-            if dc_lat is not None and dc_lng is not None:
-                direction = self._calculate_compass_direction(
-                    dc_lat, dc_lng,
-                    zone["center"]["lat"], zone["center"]["lng"]
-                )
-            else:
-                direction = "N"
-            zone["postal_code"] = f"{prefix}{zone_code}{direction}"
-            zone["code_numeric"] = f"{prefix}{zone_code}{direction}"
+            zone["postal_code"] = f"{prefix}{current_code:03d}"
+            zone["code_numeric"] = f"{prefix}{current_code:03d}"
             current_code += spacing
         return zones_sorted
 

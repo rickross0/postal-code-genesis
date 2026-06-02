@@ -387,6 +387,53 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       doc.text('* International benchmark based on Esri ArcGIS Enterprise, Smarty Address Verification,', margin, doc.lastAutoTable.finalY + 6);
       doc.text('  and UPU national addressing consultancy rates for comparable national-level deployments.', margin, doc.lastAutoTable.finalY + 10);
 
+      // One-Time Professional Services
+      const oneTimeY = doc.lastAutoTable.finalY + 20;
+      doc.setFontSize(14);
+      doc.setTextColor(108, 99, 255);
+      doc.text('One-Time Professional Services', pageW / 2, oneTimeY, { align: 'center' });
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      doc.text('Tailored to launch your national postal system fast — no in-house expertise required.', pageW / 2, oneTimeY + 5, { align: 'center' });
+      doc.setFontSize(10);
+      doc.setTextColor(80, 80, 80);
+
+      const oneTimeBody = [
+        ['Setup & Onboarding', '$2,500 – $10,000', 'Configuration, user training, data import, and go-live support'],
+        ['Data Migration', '$1,500 – $5,000', 'Import shapefiles, census data, legacy postal databases'],
+        ['White-Label / Custom Branding', '$5,000 – $15,000', 'Remove our logo, apply your national identity & colours'],
+        ['System Integration', '$3,000 – $15,000', 'Connect to tax, land registry, voter rolls, or ID systems'],
+      ];
+
+      autoTable(doc, {
+        startY: oneTimeY + 10,
+        head: [['Service', 'Price Range', 'What You Get']],
+        body: oneTimeBody,
+        theme: 'striped',
+        headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+        styles: { fontSize: 10, cellPadding: 2, overflow: 'linebreak' },
+        columnStyles: { 0: { cellWidth: 55 }, 1: { cellWidth: 40 }, 2: { cellWidth: 'auto' } },
+        margin: { left: margin, right: margin },
+      });
+
+      // Marketing pitch
+      const pitchY = doc.lastAutoTable.finalY + 12;
+      doc.setFillColor(248, 249, 255);
+      doc.roundedRect(margin, pitchY, pageW - margin * 2, 42, 4, 4, 'F');
+      doc.setFontSize(12);
+      doc.setTextColor(26, 26, 46);
+      doc.text('Why invest in professional services?', margin + 6, pitchY + 10);
+      doc.setFontSize(9);
+      doc.setTextColor(80, 80, 80);
+      const pitchLines = [
+        '• Governments that skip setup support take 3x longer to launch — every delayed month costs public trust and revenue.',
+        '• Data migration from legacy systems prevents costly duplication errors and ensures continuity.',
+        '• White-label branding builds citizen confidence — your postal system looks like a home-grown institution, not imported software.',
+        '• System integration unlocks cross-department revenue: connected addressing powers tax collection, voter registration,',
+        '  emergency response, and e-commerce — paying for itself within the first year.',
+      ];
+      pitchLines.forEach((line, i) => doc.text(line, margin + 6, pitchY + 18 + i * 4.5));
+
       // Zoom map to selected report items before capture
       if (mapInstance && selectedReportItems.size > 0) {
         zoomToReportItems();

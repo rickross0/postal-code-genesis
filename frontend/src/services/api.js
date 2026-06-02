@@ -27,8 +27,8 @@ export const splitZone = (zoneId, lineGeojson) => api.post(`/zones/${zoneId}/spl
 export const listDistricts = (countryId) => api.get(`/countries/${countryId}/districts`);
 export const createDistrict = (regionId, name, code) =>
   api.post(`/regions/${regionId}/districts?name=${encodeURIComponent(name)}&code=${code}`);
-export const autoCreateDistricts = (regionId) =>
-  api.post(`/regions/${regionId}/districts/auto-create`);
+export const autoCreateDistricts = (regionId, numDistricts = null) =>
+  api.post(`/regions/${regionId}/districts/auto-create${numDistricts ? `?num_districts=${numDistricts}` : ''}`);
 export const updateDistrict = (districtId, data) => api.put(`/districts/${districtId}`, data);
 export const deleteDistrict = (districtId) => api.delete(`/districts/${districtId}`);
 

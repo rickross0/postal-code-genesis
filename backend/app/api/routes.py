@@ -996,6 +996,7 @@ async def create_district(
 @router.post("/regions/{region_id}/districts/auto-create")
 async def auto_create_districts(
     region_id: int,
+    num_districts: Optional[int] = Query(None, description="Number of districts to create (overrides default calculation)"),
     db: AsyncSession = Depends(get_db),
 ):
     """Auto-generate districts for a region, preserving existing districts and filling open areas."""
@@ -1084,9 +1085,12 @@ async def auto_create_districts(
 
     cap_lat = country.capital_lat or 4.85
     cap_lng = country.capital_lng or 31.6
-    num_regions = max(country.num_regions, 1)
-    num_districts_total = max(country.num_districts, 1)
-    districts_per_region = max(num_districts_total // num_regions, 1)
+    if num_districts is not None and num_districts > 0:
+        districts_per_region = num_districts
+    else:
+        num_regions = max(country.num_regions, 1)
+        num_districts_total = max(country.num_districts, 1)
+        districts_per_region = max(num_districts_total // num_regions, 1)
 
     # Derive region boundary or center
     region_boundary = None

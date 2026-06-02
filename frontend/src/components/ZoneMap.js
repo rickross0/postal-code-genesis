@@ -959,8 +959,14 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
 
   const handleAutoDistricts = useCallback(async (regionId) => {
     if (!window.confirm('Auto-generate districts for open areas in this region? Existing districts will be preserved.')) return;
+    const input = window.prompt('How many districts do you want to create? (Leave empty for automatic)', '');
+    const numDistricts = input ? parseInt(input.trim(), 10) : null;
+    if (input && (isNaN(numDistricts) || numDistricts < 1)) {
+      alert('Please enter a valid number (1 or more).');
+      return;
+    }
     try {
-      const res = await autoCreateDistricts(regionId);
+      const res = await autoCreateDistricts(regionId, numDistricts);
       await loadData();
       await loadSnapshots();
       if (res.data?.snapshot_id) {

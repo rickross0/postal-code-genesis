@@ -1409,7 +1409,7 @@ async def delete_zone(
 @router.get("/countries/{country_id}/zones/export")
 async def export_zones(
     country_id: int,
-    format: str = Query("csv", regex="^(csv|xlsx|json)$"),
+    format: str = Query("csv", pattern="^(csv|xlsx|json)$"),
     db: AsyncSession = Depends(get_db),
 ):
     """Export zones for a country as CSV, Excel, or JSON."""
@@ -1461,7 +1461,7 @@ async def export_zones(
 @router.get("/countries/{country_id}/report")
 async def export_report(
     country_id: int,
-    format: str = Query("pdf", regex="^(pdf|json)$"),
+    format: str = Query("pdf", pattern="^(pdf|json)$"),
     db: AsyncSession = Depends(get_db),
 ):
     """Generate a country postal code report as PDF or JSON summary."""

@@ -717,7 +717,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             const color = REGION_COLORS[r.id % REGION_COLORS.length];
             const rSel = isReportSelected('region', r.id);
             return (
-              <GeoJSON key={`rg-${r.id}-${r.boundary_geojson?.type||""}`} data={r.boundary_geojson} style={() => ({ color: rSel ? '#ffd43b' : color, weight: rSel ? 5 : 3, fillColor: rSel ? '#ffd43b' : color, fillOpacity: rSel ? 0.4 : 0.2, dashArray: rSel ? undefined : '8,4' })} eventHandlers={{ click: () => { if (!drawing) { if (reportMode) { toggleReportItem('region', r.id); } else { setSelRegion(r.id); setSelDistrict(null); zoomToFeature('region', r.id); } } } }} />
+              <GeoJSON key={`rg-${r.id}-${r.boundary_geojson?.type||""}`} data={r.boundary_geojson} style={() => ({ color: rSel ? '#ffd43b' : color, weight: rSel ? 6 : 3, fillColor: rSel ? '#ffd43b' : color, fillOpacity: rSel ? 0.55 : 0.2, dashArray: rSel ? undefined : '8,4' })} eventHandlers={{ click: () => { if (!drawing) { if (reportMode) { toggleReportItem('region', r.id); } else { setSelRegion(r.id); setSelDistrict(null); zoomToFeature('region', r.id); } } } }} />
             );
           })}
 
@@ -727,8 +727,8 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             const col = rSel ? '#ffd43b' : (isSel ? '#6c63ff' : (i % 2 === 0 ? '#888' : '#aaa'));
             return d.boundary_geojson ? (
               <GeoJSON key={`d-${d.id}-${d.boundary_geojson?.type||""}`} data={d.boundary_geojson} style={() => ({
-                color: col, weight: rSel ? 4 : (isSel ? 3 : 2), fillColor: rSel ? '#ffd43b' : (isSel ? '#6c63ff' : '#ccc'),
-                fillOpacity: rSel ? 0.35 : (isSel ? 0.25 : 0.12), dashArray: (d.locked && !rSel) ? '8,4' : undefined,
+                color: col, weight: rSel ? 6 : (isSel ? 3 : 2), fillColor: rSel ? '#ffd43b' : (isSel ? '#6c63ff' : '#ccc'),
+                fillOpacity: rSel ? 0.55 : (isSel ? 0.25 : 0.12), dashArray: (d.locked && !rSel) ? '8,4' : undefined,
               })} eventHandlers={{
                 click: () => { if (!drawing) { if (reportMode) { toggleReportItem('district', d.id); } else { setSelDistrict(isSel ? null : d.id); setSelRegion(d.region_id); if (!isSel) zoomToFeature('district', d.id); } } },
               }} />
@@ -739,28 +739,33 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             const color = getZoneColor(zone);
             const isSel = selectedZone?.id === zone.id;
             const isEdit = editItem?.id === zone.id && drawTarget === 'zone';
+            const zRep = isReportSelected('zone', zone.id);
             if (isEdit) return null;
             if (zone.boundary_geojson) {
               return (
                 <GeoJSON key={`z-${zone.id}-${zone.boundary_geojson?.type||""}`} data={zone.boundary_geojson} style={() => ({
-                  color: isSel ? '#fff' : color, weight: isSel ? 3 : 1.5,
-                  fillColor: color, fillOpacity: isSel ? 0.5 : 0.3,
+                  color: zRep ? '#ffd43b' : (isSel ? '#fff' : color), weight: zRep ? 5 : (isSel ? 3 : 1.5),
+                  fillColor: zRep ? '#ffd43b' : color, fillOpacity: zRep ? 0.55 : (isSel ? 0.5 : 0.3),
                   dashArray: zone.locked ? '4,4' : undefined,
-                })} eventHandlers={{ click: () => { if (!drawing && !movingZone) { setSelectedZone(zone); zoomToFeature('zone', zone.id); } } }} />
+                })} eventHandlers={{ click: () => { if (!drawing && !movingZone) { if (reportMode) { toggleReportItem('zone', zone.id); } else { setSelectedZone(zone); zoomToFeature('zone', zone.id); } } } }} />
               );
             }
             return (
-              <CircleMarker key={zone.id} center={[zone.center_lat || 0, zone.center_lng || 0]} radius={movingZone === zone.id ? 14 : 10}
-                pathOptions={{ color: movingZone === zone.id ? '#ff922b' : (isSel ? '#ff6b6b' : color), fillColor: color, fillOpacity: movingZone === zone.id ? 0.5 : 0.3, weight: movingZone === zone.id ? 4 : (isSel ? 3 : 2) }}
-                eventHandlers={{ click: () => { if (!drawing && !movingZone) { setSelectedZone(zone); zoomToFeature('zone', zone.id); } } }} />
+              <CircleMarker key={zone.id} center={[zone.center_lat || 0, zone.center_lng || 0]} radius={zRep ? 16 : (movingZone === zone.id ? 14 : 10)}
+                pathOptions={{ color: zRep ? '#ffd43b' : (movingZone === zone.id ? '#ff922b' : (isSel ? '#ff6b6b' : color)), fillColor: zRep ? '#ffd43b' : color, fillOpacity: zRep ? 0.7 : (movingZone === zone.id ? 0.5 : 0.3), weight: zRep ? 6 : (movingZone === zone.id ? 4 : (isSel ? 3 : 2)) }}
+                eventHandlers={{ click: () => { if (!drawing && !movingZone) { if (reportMode) { toggleReportItem('zone', zone.id); } else { setSelectedZone(zone); zoomToFeature('zone', zone.id); } } } }} />
             );
           })}
 
           {zones.filter(z => !isHidden(hiddenMap, 'z', z.id)).map((zone) => {
             const color = getZoneColor(zone);
+            const zRep = isReportSelected('zone', zone.id);
+            const labelColor = zRep ? '#1a1a2e' : color;
+            const labelBg = zRep ? '#ffd43b' : 'rgba(255,255,255,.95)';
+            const labelBorder = zRep ? '2px solid #1a1a2e' : `1px solid ${color}`;
             return (
               <Marker key={`l-${zone.id}`} position={[zone.center_lat || 0, zone.center_lng || 0]}
-                icon={L.divIcon({ className: '', html: `<div style="background:rgba(255,255,255,.95);padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;color:${color};border:1px solid ${color};white-space:nowrap;pointer-events:none;">${zone.locked ? '🔒' : ''}${zone.postal_code}</div>`, iconSize: [80, 20], iconAnchor: [40, 10] })}
+                icon={L.divIcon({ className: '', html: `<div style="background:${labelBg};padding:2px 6px;border-radius:4px;font-size:10px;font-weight:700;color:${labelColor};border:${labelBorder};white-space:nowrap;pointer-events:none;">${zone.locked ? '🔒' : ''}${zone.postal_code}</div>`, iconSize: [80, 20], iconAnchor: [40, 10] })}
                 interactive={false} />
             );
           })}

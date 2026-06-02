@@ -311,6 +311,135 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     return items;
   }, [selectedReportItems, regions, districts, zones]);
 
+  const handleGenerateProposalPDF = useCallback(async () => {
+    if (!selectedCountry) return;
+    try {
+      setGeneratingReport(true);
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const margin = 14;
+
+      // Cover
+      doc.setFontSize(26);
+      doc.setTextColor(108, 99, 255);
+      doc.text('Postal Code Genesis', pageW / 2, 45, { align: 'center' });
+      doc.setFontSize(18);
+      doc.setTextColor(26, 26, 46);
+      doc.text('Product Proposal', pageW / 2, 58, { align: 'center' });
+      doc.setFontSize(12);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Prepared for: ${selectedCountry.name || 'National Government'}`, pageW / 2, 72, { align: 'center' });
+      doc.text(`Date: ${new Date().toLocaleDateString()}`, pageW / 2, 80, { align: 'center' });
+
+      // Value proposition
+      const vpY = 95;
+      doc.setFillColor(248, 249, 255);
+      doc.roundedRect(margin, vpY, pageW - margin * 2, 48, 4, 4, 'F');
+      doc.setFontSize(12);
+      doc.setTextColor(26, 26, 46);
+      doc.text('Why Postal Code Genesis?', margin + 6, vpY + 10);
+      doc.setFontSize(9);
+      doc.setTextColor(80, 80, 80);
+      const vpLines = [
+        '• Purpose-built for nations without existing postal infrastructure — no legacy system dependencies.',
+        '• Combines GIS mapping, boundary drawing, postal code assignment, and policy generation in one platform.',
+        '• 25% more affordable than international alternatives (Esri, Smarty, UPU consultancy) at national scale.',
+        '• Supports multi-level administration: regions → districts → zones, with automatic code generation.',
+        '• Full snapshot/rollback capability — experiment safely, revert mistakes instantly.',
+        '• Export-ready for UN, UPU, and international postal compliance standards.',
+      ];
+      vpLines.forEach((line, i) => doc.text(line, margin + 6, vpY + 18 + i * 5));
+
+      // Pricing
+      doc.addPage();
+      doc.setFontSize(18);
+      doc.setTextColor(26, 26, 46);
+      doc.text('Software License Pricing', margin, 24);
+      doc.setFontSize(10);
+      doc.setTextColor(120, 120, 120);
+      doc.text('25% cheaper than international addressing systems at national scale', margin, 32);
+
+      const plans = [
+        { name: '1-Year Plan', price: 18900, benchmark: 25200 },
+        { name: '2-Year Plan', price: 33900, benchmark: 45300 },
+        { name: '20-Year Membership', price: 338000, benchmark: 451000 },
+      ];
+      const licBody = plans.map(p => {
+        const save = p.benchmark - p.price;
+        const pct = Math.round((save / p.benchmark) * 100);
+        return [p.name, `$${p.price.toLocaleString()}`, `$${p.benchmark.toLocaleString()}`, `$${save.toLocaleString()} (${pct}%)`];
+      });
+
+      autoTable(doc, {
+        startY: 38,
+        head: [['Plan', 'Our Price', 'Int\'l Benchmark', 'You Save']],
+        body: licBody,
+        theme: 'striped',
+        headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+        styles: { fontSize: 10, cellPadding: 2 },
+        margin: { left: margin, right: margin },
+      });
+
+      // One-Time Professional Services
+      const svcY = doc.lastAutoTable.finalY + 16;
+      doc.setFontSize(16);
+      doc.setTextColor(26, 26, 46);
+      doc.text('One-Time Professional Services', margin, svcY);
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      doc.text('Tailored to launch your national postal system fast — no in-house expertise required.', margin, svcY + 6);
+
+      const oneTimeBody = [
+        ['Setup & Onboarding', '$2,500 – $10,000', 'Configuration, user training, data import, go-live support'],
+        ['Data Migration', '$1,500 – $5,000', 'Import shapefiles, census data, legacy postal databases'],
+        ['White-Label / Custom Branding', '$5,000 – $15,000', 'Remove our logo, apply your national identity & colours'],
+        ['System Integration', '$3,000 – $15,000', 'Connect to tax, land registry, voter rolls, or ID systems'],
+      ];
+
+      autoTable(doc, {
+        startY: svcY + 10,
+        head: [['Service', 'Price Range', 'What You Get']],
+        body: oneTimeBody,
+        theme: 'striped',
+        headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+        styles: { fontSize: 10, cellPadding: 2, overflow: 'linebreak' },
+        columnStyles: { 0: { cellWidth: 55 }, 1: { cellWidth: 40 }, 2: { cellWidth: 'auto' } },
+        margin: { left: margin, right: margin },
+      });
+
+      // Marketing pitch
+      const pitchY = doc.lastAutoTable.finalY + 12;
+      doc.setFillColor(248, 249, 255);
+      doc.roundedRect(margin, pitchY, pageW - margin * 2, 42, 4, 4, 'F');
+      doc.setFontSize(12);
+      doc.setTextColor(26, 26, 46);
+      doc.text('Why invest in professional services?', margin + 6, pitchY + 10);
+      doc.setFontSize(9);
+      doc.setTextColor(80, 80, 80);
+      const pitchLines = [
+        '• Governments that skip setup support take 3x longer to launch — every delayed month costs public trust and revenue.',
+        '• Data migration from legacy systems prevents costly duplication errors and ensures continuity.',
+        '• White-label branding builds citizen confidence — your postal system looks like a home-grown institution, not imported software.',
+        '• System integration unlocks cross-department revenue: connected addressing powers tax collection, voter registration,',
+        '  emergency response, and e-commerce — paying for itself within the first year.',
+      ];
+      pitchLines.forEach((line, i) => doc.text(line, margin + 6, pitchY + 18 + i * 4.5));
+
+      // Contact / CTA
+      const ctaY = pitchY + 52;
+      doc.setFontSize(14);
+      doc.setTextColor(108, 99, 255);
+      doc.text('Ready to modernise your national addressing system?', pageW / 2, ctaY, { align: 'center' });
+      doc.setFontSize(10);
+      doc.setTextColor(80, 80, 80);
+      doc.text('Contact us to schedule a demonstration or request a pilot project.', pageW / 2, ctaY + 8, { align: 'center' });
+
+      doc.save(`${selectedCountry.name || 'proposal'}-postal-genesis-proposal-${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch (e) { console.error('Proposal PDF failed:', e); alert('Proposal PDF failed: ' + e.message); }
+    finally { setGeneratingReport(false); }
+  }, [selectedCountry]);
+
   const handleGeneratePDF = useCallback(async () => {
     if (!mapWrapRef.current || !selectedCountry) return;
     const reportItems = buildReportData();
@@ -386,53 +515,6 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       doc.setTextColor(100, 100, 100);
       doc.text('* International benchmark based on Esri ArcGIS Enterprise, Smarty Address Verification,', margin, doc.lastAutoTable.finalY + 6);
       doc.text('  and UPU national addressing consultancy rates for comparable national-level deployments.', margin, doc.lastAutoTable.finalY + 10);
-
-      // One-Time Professional Services
-      const oneTimeY = doc.lastAutoTable.finalY + 20;
-      doc.setFontSize(14);
-      doc.setTextColor(108, 99, 255);
-      doc.text('One-Time Professional Services', pageW / 2, oneTimeY, { align: 'center' });
-      doc.setFontSize(9);
-      doc.setTextColor(120, 120, 120);
-      doc.text('Tailored to launch your national postal system fast — no in-house expertise required.', pageW / 2, oneTimeY + 5, { align: 'center' });
-      doc.setFontSize(10);
-      doc.setTextColor(80, 80, 80);
-
-      const oneTimeBody = [
-        ['Setup & Onboarding', '$2,500 – $10,000', 'Configuration, user training, data import, and go-live support'],
-        ['Data Migration', '$1,500 – $5,000', 'Import shapefiles, census data, legacy postal databases'],
-        ['White-Label / Custom Branding', '$5,000 – $15,000', 'Remove our logo, apply your national identity & colours'],
-        ['System Integration', '$3,000 – $15,000', 'Connect to tax, land registry, voter rolls, or ID systems'],
-      ];
-
-      autoTable(doc, {
-        startY: oneTimeY + 10,
-        head: [['Service', 'Price Range', 'What You Get']],
-        body: oneTimeBody,
-        theme: 'striped',
-        headStyles: { fillColor: [108, 99, 255], textColor: 255 },
-        styles: { fontSize: 10, cellPadding: 2, overflow: 'linebreak' },
-        columnStyles: { 0: { cellWidth: 55 }, 1: { cellWidth: 40 }, 2: { cellWidth: 'auto' } },
-        margin: { left: margin, right: margin },
-      });
-
-      // Marketing pitch
-      const pitchY = doc.lastAutoTable.finalY + 12;
-      doc.setFillColor(248, 249, 255);
-      doc.roundedRect(margin, pitchY, pageW - margin * 2, 42, 4, 4, 'F');
-      doc.setFontSize(12);
-      doc.setTextColor(26, 26, 46);
-      doc.text('Why invest in professional services?', margin + 6, pitchY + 10);
-      doc.setFontSize(9);
-      doc.setTextColor(80, 80, 80);
-      const pitchLines = [
-        '• Governments that skip setup support take 3x longer to launch — every delayed month costs public trust and revenue.',
-        '• Data migration from legacy systems prevents costly duplication errors and ensures continuity.',
-        '• White-label branding builds citizen confidence — your postal system looks like a home-grown institution, not imported software.',
-        '• System integration unlocks cross-department revenue: connected addressing powers tax collection, voter registration,',
-        '  emergency response, and e-commerce — paying for itself within the first year.',
-      ];
-      pitchLines.forEach((line, i) => doc.text(line, margin + 6, pitchY + 18 + i * 4.5));
 
       // Zoom map to selected report items before capture
       if (mapInstance && selectedReportItems.size > 0) {
@@ -935,6 +1017,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           {snapshotsVisible ? '👁️‍🗨️ Hide Snapshots' : '📸 Show Snapshots'}
         </button>
         <button style={{ ...styles.btnS, border: '1px solid #6c63ff', color: '#6c63ff' }} onClick={handleScreenshot} disabled={generatingReport}>📸 Screenshot</button>
+        <button style={{ ...styles.btnS, border: '1px solid #1a1a2e', color: '#1a1a2e', fontWeight: 700 }} onClick={handleGenerateProposalPDF} disabled={generatingReport}>📋 Product Proposal</button>
         <button style={{ ...styles.btnS, border: reportMode ? '1px solid #ff922b' : '1px solid #999', color: reportMode ? '#ff922b' : '#666' }} onClick={() => { setReportMode(v => !v); if (reportMode) clearReportSelection(); }}>
           {reportMode ? '📄 Exit Report' : '📄 Report Mode'}
         </button>

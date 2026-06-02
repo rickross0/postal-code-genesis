@@ -73,6 +73,8 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [undoableRegions, setUndoableRegions] = useState(false);
   const [snapshots, setSnapshots] = useState([]);
   const [showSnapshots, setShowSnapshots] = useState(false);
+  const [snapshotsVisible, setSnapshotsVisible] = useState(true);
+  const [snapshotsPos, setSnapshotsPos] = useState('tl'); // 'tl','tr','bl','br'
 
   const loadSnapshots = useCallback(async () => {
     if (!selectedCountry) return;
@@ -329,6 +331,9 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           <button style={{ ...styles.btnS, border: '1px solid #51cf66', color: '#51cf66' }} onClick={() => setHiddenMap({})}>👁️ Show All ({Object.keys(hiddenMap).length} hidden)</button>
         )}
         <button style={{ ...styles.btnS, border: '1px solid #4363d8', color: '#4363d8' }} onClick={handleSaveSnapshot}>💾 Save Snapshot</button>
+        <button style={{ ...styles.btnS, border: snapshotsVisible ? '1px solid #999' : '1px solid #4363d8', color: snapshotsVisible ? '#666' : '#4363d8' }} onClick={() => setSnapshotsVisible(v => !v)}>
+          {snapshotsVisible ? '👁️‍🗨️ Hide Snapshots' : '📸 Show Snapshots'}
+        </button>
       </div>
 
       <div style={styles.mapWrap}>
@@ -613,19 +618,25 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         )}
 
         {/* Snapshots Panel */}
-        {snapshots.length > 0 && !drawing && (
-          <div style={{ position: 'absolute', top: 80, left: 270, background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 2px 12px rgba(0,0,0,.12)', maxWidth: 220, zIndex: 1000, fontSize: '12px', maxHeight: '40vh', overflowY: 'auto' }}>
+        {snapshots.length > 0 && !drawing && snapshotsVisible && (
+          <div style={{ position: 'absolute', ...(({ tl: { top: 80, left: 270 }, tr: { top: 80, right: 20 }, bl: { bottom: 20, left: 20 }, br: { bottom: 20, right: 20 } })[snapshotsPos]), background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 2px 12px rgba(0,0,0,.12)', maxWidth: 220, zIndex: 1000, fontSize: '12px', maxHeight: '40vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: '#1a1a2e' }}>📸 Snapshots</div>
-              <button style={{ background: 'none', border: 'none', fontSize: 12, cursor: 'pointer', color: '#999' }} onClick={() => setShowSnapshots(!showSnapshots)}>{showSnapshots ? '▲' : '▼'}</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <button title="Top left" style={{ background: 'none', border: 'none', fontSize: 10, cursor: 'pointer', color: snapshotsPos === 'tl' ? '#6c63ff' : '#ccc', padding: 0 }} onClick={() => setSnapshotsPos('tl')}>↖</button>
+                <button title="Top right" style={{ background: 'none', border: 'none', fontSize: 10, cursor: 'pointer', color: snapshotsPos === 'tr' ? '#6c63ff' : '#ccc', padding: 0 }} onClick={() => setSnapshotsPos('tr')}>↗</button>
+                <button title="Bottom left" style={{ background: 'none', border: 'none', fontSize: 10, cursor: 'pointer', color: snapshotsPos === 'bl' ? '#6c63ff' : '#ccc', padding: 0 }} onClick={() => setSnapshotsPos('bl')}>↙</button>
+                <button title="Bottom right" style={{ background: 'none', border: 'none', fontSize: 10, cursor: 'pointer', color: snapshotsPos === 'br' ? '#6c63ff' : '#ccc', padding: 0 }} onClick={() => setSnapshotsPos('br')}>↘</button>
+                <button title="Close panel" style={{ background: 'none', border: 'none', fontSize: 14, cursor: 'pointer', color: '#999', padding: '0 0 0 4px', lineHeight: 1 }} onClick={() => setSnapshotsVisible(false)}>×</button>
+              </div>
             </div>
+            <button style={{ background: 'none', border: 'none', fontSize: 12, cursor: 'pointer', color: '#999', padding: 0, marginBottom: 6, display: 'block' }} onClick={() => setShowSnapshots(!showSnapshots)}>{showSnapshots ? '▲ Collapse' : '▼ Expand (' + snapshots.length + ')'}</button>
             {showSnapshots && snapshots.map((s, i) => (
               <div key={s.id} style={{ marginBottom: 6, padding: '6px 8px', background: '#f8f9ff', borderRadius: 6, border: '1px solid #e8e8f0' }}>
                 <div style={{ fontSize: 11, color: '#666', marginBottom: 4 }}>#{snapshots.length - i} — {new Date(s.created_at).toLocaleString()}</div>
                 <button style={{ ...styles.btnS, fontSize: 10, padding: '4px 8px', width: '100%' }} onClick={() => handleRestoreSnapshot(s.id)}>↩️ Revert to this</button>
               </div>
             ))}
-            {!showSnapshots && <div style={{ fontSize: 11, color: '#999' }}>{snapshots.length} saved — click ▼ to view</div>}
           </div>
         )}
       </div>

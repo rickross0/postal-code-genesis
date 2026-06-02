@@ -2,6 +2,9 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Polygon, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 import {
   listZones, updateZone, autoCreateAllZones, createZoneManual, listDistricts,
   deleteZone, listRegions, createRegion, updateRegion, deleteRegion, autoCreateRegions, deleteAllRegions,
@@ -53,6 +56,21 @@ function FitBounds({ zones, cid }) {
 
 function ClickH({ onClick }) { useMapEvents({ click: onClick }); return null; }
 
+function useMapScreenshot() {
+  const capture = async (element) => {
+    if (!element) return null;
+    const canvas = await html2canvas(element, {
+      useCORS: true,
+      allowTaint: true,
+      scale: 2,
+      logging: false,
+      backgroundColor: '#f0f0f5',
+    });
+    return canvas.toDataURL('image/png');
+  };
+  return { capture };
+}
+
 export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [zones, setZones] = useState([]);
   const [districts, setDistricts] = useState([]);
@@ -75,8 +93,227 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotsVisible, setSnapshotsVisible] = useState(true);
   const [snapshotsPos, setSnapshotsPos] = useState('tl'); // 'tl','tr','bl','br'
+  const [reportMode, setReportMode] = useState(false);
+  const [selectedReportItems, setSelectedReportItems] = useState(new Set());
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const mapWrapRef = useRef(null);
 
-  const loadSnapshots = useCallback(async () => {
+  const { capture: captureMap } = useMapScreenshot();
+
+  const toggleReportItem = useCallback((type, id) => {
+    setSelectedReportItems(prev => {
+      const key = `${type}-${id}`;
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const isReportSelected = (type, id) => selectedReportItems.has(`${type}-${id}`);
+
+  const clearReportSelection = useCallback(() => setSelectedReportItems(new Set()), []);
+
+  const handleScreenshot = useCallback(async () => {
+    if (!mapWrapRef.current) return;
+    try {
+      setGeneratingReport(true);
+      const dataUrl = await captureMap(mapWrapRef.current);
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `${selectedCountry?.name || 'map'}-screenshot-${new Date().toISOString().slice(0,10)}.png`;
+      link.click();
+    } catch (e) { console.error('Screenshot failed:', e); alert('Screenshot failed'); }
+    finally { setGeneratingReport(false); }
+  }, [captureMap, selectedCountry]);
+
+  const buildReportData = useCallback(() => {
+    const items = [];
+    selectedReportItems.forEach(key => {
+      const [type, idStr] = key.split('-');
+      const id = parseInt(idStr, 10);
+      if (type === 'region') {
+        const r = regions.find(x => x.id === id);
+        if (r) {
+          const ds = districts.filter(d => d.region_id === id);
+          const zs = zones.filter(z => ds.some(d => d.id === z.district_id));
+          items.push({ type: 'region', data: r, districts: ds, zones: zs });
+        }
+      } else if (type === 'district') {
+        const d = districts.find(x => x.id === id);
+        if (d) {
+          const zs = zones.filter(z => z.district_id === id);
+          items.push({ type: 'district', data: d, zones: zs });
+        }
+      } else if (type === 'zone') {
+        const z = zones.find(x => x.id === id);
+        if (z) items.push({ type: 'zone', data: z });
+      }
+    });
+    return items;
+  }, [selectedReportItems, regions, districts, zones]);
+
+  const handleGeneratePDF = useCallback(async () => {
+    if (!mapWrapRef.current || !selectedCountry) return;
+    const reportItems = buildReportData();
+    if (!reportItems.length) { alert('Select at least one area in Report Mode first.'); return; }
+    try {
+      setGeneratingReport(true);
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const margin = 14;
+
+      // Cover
+      doc.setFontSize(22);
+      doc.setTextColor(26, 26, 46);
+      doc.text('Postal Code Genesis Report', pageW / 2, 40, { align: 'center' });
+      doc.setFontSize(14);
+      doc.setTextColor(100, 100, 100);
+      doc.text(selectedCountry.name || 'Country', pageW / 2, 55, { align: 'center' });
+      doc.setFontSize(11);
+      doc.text(`Generated: ${new Date().toLocaleString()}`, pageW / 2, 65, { align: 'center' });
+      doc.text(`Selected areas: ${selectedReportItems.size}`, pageW / 2, 72, { align: 'center' });
+
+      // Map screenshot
+      const imgData = await captureMap(mapWrapRef.current);
+      const imgW = pageW - margin * 2;
+      const imgH = imgW * 0.6;
+      doc.addImage(imgData, 'PNG', margin, 85, imgW, imgH);
+
+      // Summary table
+      doc.addPage();
+      doc.setFontSize(16);
+      doc.setTextColor(26, 26, 46);
+      doc.text('Selected Areas Summary', margin, 20);
+
+      const tableBody = [];
+      reportItems.forEach(item => {
+        if (item.type === 'region') {
+          tableBody.push([
+            'Region',
+            item.data.name,
+            item.data.code || '-',
+            item.districts.length,
+            item.zones.length,
+          ]);
+        } else if (item.type === 'district') {
+          tableBody.push([
+            'District',
+            item.data.name,
+            item.data.code || '-',
+            '-',
+            item.zones.length,
+          ]);
+        } else {
+          tableBody.push([
+            'Zone',
+            item.data.name,
+            item.data.postal_code || '-',
+            '-',
+            '-',
+          ]);
+        }
+      });
+
+      doc.autoTable({
+        startY: 28,
+        head: [['Type', 'Name', 'Code / Postal', 'Districts', 'Zones']],
+        body: tableBody,
+        theme: 'striped',
+        headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+        styles: { fontSize: 10, cellPadding: 2 },
+        margin: { left: margin, right: margin },
+      });
+
+      // Detail pages
+      reportItems.forEach(item => {
+        doc.addPage();
+        doc.setFontSize(16);
+        doc.setTextColor(26, 26, 46);
+        if (item.type === 'region') {
+          doc.text(`Region: ${item.data.name}`, margin, 20);
+          doc.setFontSize(11);
+          doc.setTextColor(80, 80, 80);
+          doc.text(`Code: ${item.data.code || '-'} | Locked: ${item.data.locked ? 'Yes' : 'No'}`, margin, 28);
+          if (item.districts.length) {
+            doc.setFontSize(13);
+            doc.setTextColor(26, 26, 46);
+            doc.text('Districts', margin, 38);
+            doc.autoTable({
+              startY: 42,
+              head: [['District', 'Code', 'Zones']],
+              body: item.districts.map(d => [d.name, d.code || '-', item.zones.filter(z => z.district_id === d.id).length]),
+              theme: 'striped',
+              headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+              styles: { fontSize: 10, cellPadding: 2 },
+              margin: { left: margin, right: margin },
+            });
+          }
+          if (item.zones.length) {
+            const startY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 8 : 50;
+            doc.setFontSize(13);
+            doc.setTextColor(26, 26, 46);
+            doc.text('Postal Zones', margin, startY);
+            doc.autoTable({
+              startY: startY + 4,
+              head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
+              body: item.zones.map(z => [
+                z.postal_code || '-',
+                z.name,
+                z.population != null ? z.population.toLocaleString() : '-',
+                z.area_sq_km != null ? z.area_sq_km.toLocaleString() : '-',
+                z.status || '-',
+              ]),
+              theme: 'striped',
+              headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+              styles: { fontSize: 10, cellPadding: 2 },
+              margin: { left: margin, right: margin },
+            });
+          }
+        } else if (item.type === 'district') {
+          doc.text(`District: ${item.data.name}`, margin, 20);
+          doc.setFontSize(11);
+          doc.setTextColor(80, 80, 80);
+          doc.text(`Code: ${item.data.code || '-'} | Locked: ${item.data.locked ? 'Yes' : 'No'}`, margin, 28);
+          if (item.zones.length) {
+            doc.setFontSize(13);
+            doc.setTextColor(26, 26, 46);
+            doc.text('Postal Zones', margin, 38);
+            doc.autoTable({
+              startY: 42,
+              head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
+              body: item.zones.map(z => [
+                z.postal_code || '-',
+                z.name,
+                z.population != null ? z.population.toLocaleString() : '-',
+                z.area_sq_km != null ? z.area_sq_km.toLocaleString() : '-',
+                z.status || '-',
+              ]),
+              theme: 'striped',
+              headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+              styles: { fontSize: 10, cellPadding: 2 },
+              margin: { left: margin, right: margin },
+            });
+          }
+        } else {
+          doc.text(`Zone: ${item.data.name}`, margin, 20);
+          doc.setFontSize(11);
+          doc.setTextColor(80, 80, 80);
+          doc.text(`Postal Code: ${item.data.postal_code || '-'}`, margin, 28);
+          doc.text(`Population: ${item.data.population != null ? item.data.population.toLocaleString() : '-'}`, margin, 34);
+          doc.text(`Area: ${item.data.area_sq_km != null ? item.data.area_sq_km.toLocaleString() : '-'} km²`, margin, 40);
+          doc.text(`Status: ${item.data.status || '-'}`, margin, 46);
+          doc.text(`Locked: ${item.data.locked ? 'Yes' : 'No'}`, margin, 52);
+        }
+      });
+
+      doc.save(`${selectedCountry.name || 'report'}-postal-genesis-${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch (e) { console.error('PDF generation failed:', e); alert('PDF generation failed: ' + e.message); }
+    finally { setGeneratingReport(false); }
+  }, [captureMap, selectedCountry, selectedReportItems, buildReportData]);
+
+  const loadSnapshots = useCallback(async () =>{
     if (!selectedCountry) return;
     try {
       const res = await listSnapshots(selectedCountry.id);
@@ -334,9 +571,16 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         <button style={{ ...styles.btnS, border: snapshotsVisible ? '1px solid #999' : '1px solid #4363d8', color: snapshotsVisible ? '#666' : '#4363d8' }} onClick={() => setSnapshotsVisible(v => !v)}>
           {snapshotsVisible ? '👁️‍🗨️ Hide Snapshots' : '📸 Show Snapshots'}
         </button>
+        <button style={{ ...styles.btnS, border: '1px solid #6c63ff', color: '#6c63ff' }} onClick={handleScreenshot} disabled={generatingReport}>📸 Screenshot</button>
+        <button style={{ ...styles.btnS, border: reportMode ? '1px solid #ff922b' : '1px solid #999', color: reportMode ? '#ff922b' : '#666' }} onClick={() => { setReportMode(v => !v); if (reportMode) clearReportSelection(); }}>
+          {reportMode ? '📄 Exit Report' : '📄 Report Mode'}
+        </button>
+        {reportMode && selectedReportItems.size > 0 && (
+          <button style={{ ...styles.btn, background: '#4363d8' }} onClick={handleGeneratePDF} disabled={generatingReport}>📥 Generate PDF ({selectedReportItems.size})</button>
+        )}
       </div>
 
-      <div style={styles.mapWrap}>
+      <div style={styles.mapWrap} ref={mapWrapRef}>
         <MapContainer center={[4.85, 31.6]} zoom={6} style={{ height: '100%', width: '100%' }}>
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" updateWhenIdle={true} updateWhenZooming={false} />
           <FitBounds zones={zones} cid={selectedCountry.id} />
@@ -348,20 +592,22 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
 
           {regions.filter(r => r.boundary_geojson && !isHidden(hiddenMap, 'r', r.id)).map((r) => {
             const color = REGION_COLORS[r.id % REGION_COLORS.length];
+            const rSel = isReportSelected('region', r.id);
             return (
-              <GeoJSON key={`rg-${r.id}-${r.boundary_geojson?.type||""}`} data={r.boundary_geojson} style={() => ({ color, weight: 3, fillColor: color, fillOpacity: 0.2, dashArray: '8,4' })} eventHandlers={{ click: () => { if (!drawing) { setSelRegion(r.id); setSelDistrict(null); } } }} />
+              <GeoJSON key={`rg-${r.id}-${r.boundary_geojson?.type||""}`} data={r.boundary_geojson} style={() => ({ color: rSel ? '#ffd43b' : color, weight: rSel ? 5 : 3, fillColor: rSel ? '#ffd43b' : color, fillOpacity: rSel ? 0.4 : 0.2, dashArray: rSel ? undefined : '8,4' })} eventHandlers={{ click: () => { if (!drawing) { if (reportMode) { toggleReportItem('region', r.id); } else { setSelRegion(r.id); setSelDistrict(null); } } } }} />
             );
           })}
 
           {districts.filter(d => !isHidden(hiddenMap, 'd', d.id)).map((d, i) => {
             const isSel = selDistrict === d.id;
-            const col = isSel ? '#6c63ff' : (i % 2 === 0 ? '#888' : '#aaa');
+            const rSel = isReportSelected('district', d.id);
+            const col = rSel ? '#ffd43b' : (isSel ? '#6c63ff' : (i % 2 === 0 ? '#888' : '#aaa'));
             return d.boundary_geojson ? (
               <GeoJSON key={`d-${d.id}-${d.boundary_geojson?.type||""}`} data={d.boundary_geojson} style={() => ({
-                color: col, weight: isSel ? 3 : 2, fillColor: isSel ? '#6c63ff' : '#ccc',
-                fillOpacity: isSel ? 0.25 : 0.12, dashArray: d.locked ? '8,4' : undefined,
+                color: col, weight: rSel ? 4 : (isSel ? 3 : 2), fillColor: rSel ? '#ffd43b' : (isSel ? '#6c63ff' : '#ccc'),
+                fillOpacity: rSel ? 0.35 : (isSel ? 0.25 : 0.12), dashArray: (d.locked && !rSel) ? '8,4' : undefined,
               })} eventHandlers={{
-                click: () => { if (!drawing) { setSelDistrict(isSel ? null : d.id); setSelRegion(d.region_id); } },
+                click: () => { if (!drawing) { if (reportMode) { toggleReportItem('district', d.id); } else { setSelDistrict(isSel ? null : d.id); setSelRegion(d.region_id); } } },
               }} />
             ) : null;
           })}
@@ -606,10 +852,11 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
               const color = REGION_COLORS[r.id % REGION_COLORS.length];
               const isSel = selRegion === r.id;
               const hidden = isHidden(hiddenMap, 'r', r.id);
+              const rRep = isReportSelected('region', r.id);
               return (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, cursor: 'pointer', background: isSel ? '#f0f0f5' : 'transparent', borderRadius: 4, padding: '2px 4px', opacity: hidden ? 0.4 : 1 }} onClick={() => { setSelRegion(isSel ? null : r.id); setSelDistrict(null); }}>
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, cursor: 'pointer', background: rRep ? '#fffce8' : (isSel ? '#f0f0f5' : 'transparent'), borderRadius: 4, padding: '2px 4px', opacity: hidden ? 0.4 : 1, border: rRep ? '1px solid #ffd43b' : '1px solid transparent' }} onClick={() => { if (reportMode) { toggleReportItem('region', r.id); } else { setSelRegion(isSel ? null : r.id); setSelDistrict(null); } }}>
                   <div style={{ width: 12, height: 12, borderRadius: 3, background: color, border: '1px solid rgba(0,0,0,.1)' }} />
-                  <span style={{ color: '#333', fontSize: 11, textDecoration: hidden ? 'line-through' : 'none' }}>{r.locked ? '🔒' : ''} {r.name} {hidden ? '👁️‍🗨️' : ''}</span>
+                  <span style={{ color: '#333', fontSize: 11, textDecoration: hidden ? 'line-through' : 'none', fontWeight: rRep ? 700 : 400 }}>{r.locked ? '🔒' : ''} {r.name} {hidden ? '👁️‍🗨️' : ''} {rRep ? '✅' : ''}</span>
                   <span style={{ color: r.boundary_geojson ? '#51cf66' : '#ff6b6b', fontSize: 9 }}>{r.boundary_geojson ? '●' : '○'}</span>
                 </div>
               );
@@ -637,6 +884,36 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                 <button style={{ ...styles.btnS, fontSize: 10, padding: '4px 8px', width: '100%' }} onClick={() => handleRestoreSnapshot(s.id)}>↩️ Revert to this</button>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Report Selection Panel */}
+        {reportMode && !drawing && (
+          <div style={{ position: 'absolute', bottom: 20, right: 20, background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 2px 12px rgba(0,0,0,.12)', maxWidth: 260, zIndex: 1000, fontSize: '12px', maxHeight: '35vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: '#1a1a2e' }}>📄 Report Selection ({selectedReportItems.size})</div>
+              <button style={{ background: 'none', border: 'none', fontSize: 12, cursor: 'pointer', color: '#999' }} onClick={clearReportSelection}>Clear</button>
+            </div>
+            {selectedReportItems.size === 0 && <div style={{ fontSize: 11, color: '#999' }}>Click regions, districts, or zones on the map to add them.</div>}
+            {Array.from(selectedReportItems).map(key => {
+              const [type, idStr] = key.split('-');
+              const id = parseInt(idStr, 10);
+              let label = '-';
+              if (type === 'region') { const r = regions.find(x => x.id === id); label = r ? `🗺️ ${r.name}` : '-'; }
+              else if (type === 'district') { const d = districts.find(x => x.id === id); label = d ? `📍 ${d.name}` : '-'; }
+              else { const z = zones.find(x => x.id === id); label = z ? `📮 ${z.postal_code} — ${z.name}` : '-'; }
+              return (
+                <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, padding: '4px 6px', background: '#f8f9ff', borderRadius: 6, border: '1px solid #e8e8f0' }}>
+                  <span style={{ fontSize: 11, color: '#333' }}>{label}</span>
+                  <button style={{ background: 'none', border: 'none', fontSize: 14, cursor: 'pointer', color: '#ff6b6b', padding: 0, lineHeight: 1 }} onClick={() => toggleReportItem(type, id)}>×</button>
+                </div>
+              );
+            })}
+            {selectedReportItems.size > 0 && (
+              <button style={{ ...styles.btn, width: '100%', marginTop: 8, fontSize: 11, padding: '6px' }} onClick={handleGeneratePDF} disabled={generatingReport}>
+                {generatingReport ? 'Generating...' : '📥 Download PDF'}
+              </button>
+            )}
           </div>
         )}
       </div>

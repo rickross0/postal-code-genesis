@@ -142,13 +142,21 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       }
     } else if (type === 'district') {
       const d = districts.find(x => x.id === id);
-      if (d && d.boundary_geojson) {
-        bounds = L.geoJSON(d.boundary_geojson).getBounds();
+      if (d) {
+        if (d.boundary_geojson) {
+          bounds = L.geoJSON(d.boundary_geojson).getBounds();
+        } else if (d.center_lat != null && d.center_lng != null) {
+          bounds = L.latLngBounds([[d.center_lat - 0.02, d.center_lng - 0.02], [d.center_lat + 0.02, d.center_lng + 0.02]]);
+        }
       }
     } else if (type === 'region') {
       const r = regions.find(x => x.id === id);
-      if (r && r.boundary_geojson) {
-        bounds = L.geoJSON(r.boundary_geojson).getBounds();
+      if (r) {
+        if (r.boundary_geojson) {
+          bounds = L.geoJSON(r.boundary_geojson).getBounds();
+        } else if (r.center_lat != null && r.center_lng != null) {
+          bounds = L.latLngBounds([[r.center_lat - 0.05, r.center_lng - 0.05], [r.center_lat + 0.05, r.center_lng + 0.05]]);
+        }
       }
     }
     if (bounds && bounds.isValid()) {
@@ -174,15 +182,23 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         }
       } else if (type === 'district') {
         const d = districts.find(x => x.id === id);
-        if (d && d.boundary_geojson) {
-          const b = L.geoJSON(d.boundary_geojson).getBounds();
-          if (b.isValid()) { points.push(b.getSouthWest(), b.getNorthEast()); }
+        if (d) {
+          if (d.boundary_geojson) {
+            const b = L.geoJSON(d.boundary_geojson).getBounds();
+            if (b.isValid()) { points.push(b.getSouthWest(), b.getNorthEast()); }
+          } else if (d.center_lat != null && d.center_lng != null) {
+            points.push([d.center_lat, d.center_lng]);
+          }
         }
       } else if (type === 'region') {
         const r = regions.find(x => x.id === id);
-        if (r && r.boundary_geojson) {
-          const b = L.geoJSON(r.boundary_geojson).getBounds();
-          if (b.isValid()) { points.push(b.getSouthWest(), b.getNorthEast()); }
+        if (r) {
+          if (r.boundary_geojson) {
+            const b = L.geoJSON(r.boundary_geojson).getBounds();
+            if (b.isValid()) { points.push(b.getSouthWest(), b.getNorthEast()); }
+          } else if (r.center_lat != null && r.center_lng != null) {
+            points.push([r.center_lat, r.center_lng]);
+          }
         }
       }
     });
@@ -234,22 +250,24 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       setGeneratingReport(true);
       // Center map on selected/report features before capture; don't zoom out if nothing selected
       if (mapInstance) {
+        mapInstance.invalidateSize();
         if (reportMode && selectedReportItems.size > 0) {
           const p = waitForMapMoveEnd(); zoomToReportItems(); await p;
-          await new Promise(r => setTimeout(r, 1000));
+          await new Promise(r => setTimeout(r, 1200));
         } else if (selectedZone) {
           const p = waitForMapMoveEnd(); zoomToFeature('zone', selectedZone.id); await p;
-          await new Promise(r => setTimeout(r, 800));
+          await new Promise(r => setTimeout(r, 1000));
         } else if (selDistrict) {
           const p = waitForMapMoveEnd(); zoomToFeature('district', selDistrict); await p;
-          await new Promise(r => setTimeout(r, 800));
+          await new Promise(r => setTimeout(r, 1000));
         } else if (selRegion) {
           const p = waitForMapMoveEnd(); zoomToFeature('region', selRegion); await p;
-          await new Promise(r => setTimeout(r, 800));
+          await new Promise(r => setTimeout(r, 1000));
         }
         // If nothing is selected, capture the current view without zooming out
       }
-      const dataUrl = await captureMap(mapWrapRef.current);
+      const mapContainerEl = mapInstance ? mapInstance.getContainer() : mapWrapRef.current;
+      const dataUrl = await captureMap(mapContainerEl);
       // Add branding header/footer
       const brandedUrl = await new Promise((resolve) => {
         const img = new Image();
@@ -485,24 +503,48 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       doc.text(`Selected areas: ${selectedReportItems.size}`, pageW / 2, 72, { align: 'center' });
       doc.setFontSize(9);
       doc.setTextColor(120, 120, 120);
-      doc.text('Postal Code Format: RRDDNNN (Region 2 letters + District 2 letters + 3-digit number)', pageW / 2, 78, { align: 'center' });
+      const formatLines = doc.splitTextToSize('Postal Code Format: RRDDNNN (Region 2 letters + District 2 letters + 3-digit number)', pageW - margin * 2);
+      doc.text(formatLines, pageW / 2, 78, { align: 'center' });
 
 
       // Zoom map to selected report items before capture
       if (mapInstance && selectedReportItems.size > 0) {
-        // Attach listener BEFORE triggering zoom so we don't miss the event
+        // Ensure map knows its container size before calculating bounds
+        mapInstance.invalidateSize();
+        // Use animate:false for instant, predictable view change (no motion blur in screenshot)
         const movePromise = waitForMapMoveEnd();
         zoomToReportItems();
         await movePromise;
-        await new Promise(r => setTimeout(r, 1200)); // let tiles fully load after pan/zoom
+        // Wait for tiles + GeoJSON SVG layers to render after view change
+        await new Promise(r => setTimeout(r, 1800));
       }
 
-      // Map screenshot on cover page
-      const imgData = await captureMap(mapWrapRef.current);
-      const imgW = pageW - margin * 2;
-      const imgH = imgW * 0.6;
+      // Capture ONLY the leaflet map container (not UI overlays like legends, toolbars, info panels)
+      const mapContainerEl = mapInstance ? mapInstance.getContainer() : mapWrapRef.current;
+      const imgData = await captureMap(mapContainerEl);
+
+      // Preserve aspect ratio of captured image; fit within page width and available height
+      let imgW = pageW - margin * 2;
+      let imgH = imgW * 0.55;
+      if (imgData) {
+        const tmpImg = new Image();
+        tmpImg.src = imgData;
+        // Synchronously estimate aspect ratio from the data URL canvas dimensions if possible,
+        // otherwise fall back to the map container's current client dimensions
+        const naturalW = tmpImg.naturalWidth || mapContainerEl?.clientWidth || 800;
+        const naturalH = tmpImg.naturalHeight || mapContainerEl?.clientHeight || 600;
+        const aspect = naturalH / naturalW;
+        imgH = imgW * aspect;
+        // If image is too tall for remaining page space, scale down
+        const maxH = pageH - 90 - margin; // leave room below image
+        if (imgH > maxH) {
+          imgH = maxH;
+          imgW = imgH / aspect;
+        }
+      }
+      const imgX = (pageW - imgW) / 2; // center horizontally
       const imgY = 82;
-      doc.addImage(imgData, 'PNG', margin, imgY, imgW, imgH);
+      doc.addImage(imgData, 'PNG', imgX, imgY, imgW, imgH);
 
       // Summary table
       doc.addPage();

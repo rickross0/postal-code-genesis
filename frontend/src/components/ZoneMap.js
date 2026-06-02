@@ -985,23 +985,14 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     setHiddenMap(prev => {
       const next = { ...prev };
       if (selectedZone) next[`z-${selectedZone.id}`] = true;
-      if (selDistrict) {
-        next[`d-${selDistrict}`] = true;
-        zones.filter(z => z.district_id === selDistrict).forEach(z => { next[`z-${z.id}`] = true; });
-      }
-      if (selRegion) {
-        next[`r-${selRegion}`] = true;
-        const regionDistricts = districts.filter(d => d.region_id === selRegion);
-        regionDistricts.forEach(d => { next[`d-${d.id}`] = true; });
-        const districtIds = new Set(regionDistricts.map(d => d.id));
-        zones.filter(z => districtIds.has(z.district_id)).forEach(z => { next[`z-${z.id}`] = true; });
-      }
+      if (selDistrict) next[`d-${selDistrict}`] = true;
+      if (selRegion) next[`r-${selRegion}`] = true;
       return next;
     });
     setSelectedZone(null);
     setSelDistrict(null);
     setSelRegion(null);
-  }, [selectedZone, selDistrict, selRegion, zones, districts]);
+  }, [selectedZone, selDistrict, selRegion]);
 
   const handleNameSave = useCallback(async (type, id, name) => {
     if (!name.trim()) return;
@@ -1373,7 +1364,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button style={styles.btnS} onClick={() => startDraw('district', districts.find(d => d.id === selDistrict))}>✏️ Edit Boundary</button>
-              <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenMap(prev => { const next = { ...prev, [`d-${selDistrict}`]: true }; zones.filter(z => z.district_id === selDistrict).forEach(z => { next[`z-${z.id}`] = true; }); return next; }); setSelDistrict(null); }}>👁️‍🗨️ Hide</button>
+              <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenMap(prev => ({ ...prev, [`d-${selDistrict}`]: true })); setSelDistrict(null); }}>👁️‍🗨️ Hide</button>
               <button style={styles.btnS} onClick={() => toggleLock('district', selDistrict, districts.find(d => d.id === selDistrict)?.locked)}>
                 {districts.find(d => d.id === selDistrict)?.locked ? '🔓 Unlock' : '🔒 Lock'}
               </button>
@@ -1415,7 +1406,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <button style={styles.btnS} onClick={() => startDraw('region', regions.find(r => r.id === selRegion))}>✏️ Edit Boundary</button>
-              <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenMap(prev => { const next = { ...prev, [`r-${selRegion}`]: true }; const regionDistricts = districts.filter(d => d.region_id === selRegion); regionDistricts.forEach(d => { next[`d-${d.id}`] = true; }); const districtIds = new Set(regionDistricts.map(d => d.id)); zones.filter(z => districtIds.has(z.district_id)).forEach(z => { next[`z-${z.id}`] = true; }); return next; }); setSelRegion(null); }}>👁️‍🗨️ Hide</button>
+              <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => { setHiddenMap(prev => ({ ...prev, [`r-${selRegion}`]: true })); setSelRegion(null); }}>👁️‍🗨️ Hide</button>
               <button style={styles.btnO} onClick={() => handleAutoDistricts(selRegion)}>📍 Auto Districts</button>
               {undoableDistricts[selRegion] && (
                 <button style={{ ...styles.btnD, background: '#c62828' }} onClick={() => handleUndoDistricts(selRegion)}>↩️ Undo Districts</button>

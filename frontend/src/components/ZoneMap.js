@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, GeoJSON, CircleMarker, Marker, Polygon, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import html2canvas from 'html2canvas';
+import { toPng } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
@@ -65,16 +65,12 @@ function MapRef({ onReady }) {
 function useMapScreenshot() {
   const capture = async (element) => {
     if (!element) return null;
-    const canvas = await html2canvas(element, {
-      useCORS: true,
-      allowTaint: true,
-      scale: 2,
-      scrollX: 0,
-      scrollY: 0,
-      logging: false,
+    const dataUrl = await toPng(element, {
+      pixelRatio: 2,
+      cacheBust: true,
       backgroundColor: '#f0f0f5',
     });
-    return canvas.toDataURL('image/png');
+    return dataUrl;
   };
   return { capture };
 }

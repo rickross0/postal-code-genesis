@@ -96,6 +96,26 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [countryHidden, setCountryHidden] = useState(false);
   const [undoableRegions, setUndoableRegions] = useState(false);
   const [undoableDistricts, setUndoableDistricts] = useState({}); // { regionId: snapshotId }
+  const [nameModalOpen, setNameModalOpen] = useState(false);
+  const [nameModalType, setNameModalType] = useState(null); // 'region', 'district'
+  const [nameModalTarget, setNameModalTarget] = useState(null); // regionId for district, or callback context
+  const [customName, setCustomName] = useState('');
+  const [selectedPresetName, setSelectedPresetName] = useState('');
+
+  const PREDEFINED_REGION_NAMES = useMemo(() => [
+    'Northern Bahr el Ghazal', 'Western Bahr el Ghazal', 'Lakes', 'Warrap',
+    'Western Equatoria', 'Central Equatoria', 'Eastern Equatoria',
+    'Jonglei', 'Unity', 'Upper Nile',
+    'Abyei Area', 'Greater Pibor Area', 'Ruweng Area',
+  ], []);
+
+  const PREDEFINED_DISTRICT_NAMES = useMemo(() => [
+    'Aweil', 'Wau', 'Rumbek', 'Kuajok', 'Yambio', 'Juba', 'Torit',
+    'Bor', 'Bentiu', 'Malakal', 'Abyei', 'Pibor', 'Pariang',
+    'Yirol', 'Cueibet', 'Wanjok', 'Mundri', 'Maridi', 'Yei', 'Terekeka',
+    'Renk', 'Melut', 'Maban', 'Nasir', 'Maiwut', 'Kodok', 'Panriang',
+    'Waat', 'Ayod', 'Akobo', 'Leer', 'Mayom',
+  ], []);
   const [snapshots, setSnapshots] = useState([]);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotsVisible, setSnapshotsVisible] = useState(true);
@@ -247,6 +267,24 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     finally { setGeneratingReport(false); }
   }, [captureMap, selectedCountry, mapInstance, zones, regions, districts, hiddenMap]);
 
+  const estimateCost = useCallback((area_sq_km, population) => {
+    // Rough implementation cost estimate
+    // Infrastructure: $5,000 per km²
+    // Population services: $2 per person
+    const area = parseFloat(area_sq_km) || 0;
+    const pop = parseInt(population) || 0;
+    const infrastructure = area * 5000;
+    const services = pop * 2;
+    const total = infrastructure + services;
+    return {
+      infrastructure,
+      services,
+      total,
+      formatted: total > 0 ? `$${total.toLocaleString(undefined, {maximumFractionDigits: 0})}` : 'N/A',
+      breakdown: `Infrastructure: $${infrastructure.toLocaleString(undefined, {maximumFractionDigits: 0})} | Services: $${services.toLocaleString(undefined, {maximumFractionDigits: 0})}`
+    };
+  }, []);
+
   const buildReportData = useCallback(() => {
     const items = [];
     selectedReportItems.forEach(key => {
@@ -362,12 +400,26 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           doc.setFontSize(11);
           doc.setTextColor(80, 80, 80);
           doc.text(`Code: ${item.data.code || '-'} | Locked: ${item.data.locked ? 'Yes' : 'No'}`, margin, 28);
+          // Region stats
+          const regionPop = item.zones.reduce((sum, z) => sum + (z.population || 0), 0);
+          const regionArea = item.zones.reduce((sum, z) => sum + (z.area_sq_km || 0), 0);
+          const regionCost = estimateCost(regionArea, regionPop);
+          doc.text(`Population: ${regionPop > 0 ? regionPop.toLocaleString() : '-'}`, margin, 34);
+          doc.text(`Area: ${regionArea > 0 ? regionArea.toLocaleString() + ' km²' : '-'}`, margin, 40);
+          doc.text(`Districts: ${item.districts.length} | Zones: ${item.zones.length}`, margin, 46);
+          doc.setFontSize(12);
+          doc.setTextColor(108, 99, 255);
+          doc.text(`Est. Implementation Cost: ${regionCost.formatted}`, margin, 54);
+          doc.setFontSize(9);
+          doc.setTextColor(120, 120, 120);
+          doc.text(regionCost.breakdown, margin, 60);
           if (item.districts.length) {
+            const startY = 66;
             doc.setFontSize(13);
             doc.setTextColor(26, 26, 46);
-            doc.text('Districts', margin, 38);
+            doc.text('Districts', margin, startY);
             autoTable(doc, {
-              startY: 42,
+              startY: startY + 4,
               head: [['District', 'Code', 'Zones']],
               body: item.districts.map(d => [d.name, d.code || '-', item.zones.filter(z => z.district_id === d.id).length]),
               theme: 'striped',
@@ -377,7 +429,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             });
           }
           if (item.zones.length) {
-            const startY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 8 : 50;
+            const startY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 8 : 74;
             doc.setFontSize(13);
             doc.setTextColor(26, 26, 46);
             doc.text('Postal Zones', margin, startY);
@@ -402,12 +454,25 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           doc.setFontSize(11);
           doc.setTextColor(80, 80, 80);
           doc.text(`Code: ${item.data.code || '-'} | Locked: ${item.data.locked ? 'Yes' : 'No'}`, margin, 28);
+          const distPop = item.zones.reduce((sum, z) => sum + (z.population || 0), 0);
+          const distArea = item.zones.reduce((sum, z) => sum + (z.area_sq_km || 0), 0);
+          const distCost = estimateCost(distArea, distPop);
+          doc.text(`Population: ${distPop > 0 ? distPop.toLocaleString() : '-'}`, margin, 34);
+          doc.text(`Area: ${distArea > 0 ? distArea.toLocaleString() + ' km²' : '-'}`, margin, 40);
+          doc.text(`Zones: ${item.zones.length}`, margin, 46);
+          doc.setFontSize(12);
+          doc.setTextColor(108, 99, 255);
+          doc.text(`Est. Implementation Cost: ${distCost.formatted}`, margin, 54);
+          doc.setFontSize(9);
+          doc.setTextColor(120, 120, 120);
+          doc.text(distCost.breakdown, margin, 60);
           if (item.zones.length) {
+            const startY = 66;
             doc.setFontSize(13);
             doc.setTextColor(26, 26, 46);
-            doc.text('Postal Zones', margin, 38);
+            doc.text('Postal Zones', margin, startY);
             autoTable(doc, {
-              startY: 42,
+              startY: startY + 4,
               head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
               body: item.zones.map(z => [
                 z.postal_code || '-',
@@ -431,13 +496,20 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           doc.text(`Area: ${item.data.area_sq_km != null ? item.data.area_sq_km.toLocaleString() : '-'} km²`, margin, 40);
           doc.text(`Status: ${item.data.status || '-'}`, margin, 46);
           doc.text(`Locked: ${item.data.locked ? 'Yes' : 'No'}`, margin, 52);
+          const zoneCost = estimateCost(item.data.area_sq_km, item.data.population);
+          doc.setFontSize(12);
+          doc.setTextColor(108, 99, 255);
+          doc.text(`Est. Implementation Cost: ${zoneCost.formatted}`, margin, 62);
+          doc.setFontSize(9);
+          doc.setTextColor(120, 120, 120);
+          doc.text(zoneCost.breakdown, margin, 68);
         }
       });
 
       doc.save(`${selectedCountry.name || 'report'}-postal-genesis-${new Date().toISOString().slice(0,10)}.pdf`);
     } catch (e) { console.error('PDF generation failed:', e); alert('PDF generation failed: ' + e.message); }
     finally { setGeneratingReport(false); }
-  }, [captureMap, selectedCountry, selectedReportItems, buildReportData]);
+  }, [captureMap, selectedCountry, selectedReportItems, buildReportData, estimateCost]);
 
   const loadSnapshots = useCallback(async () =>{
     if (!selectedCountry) return;
@@ -512,20 +584,37 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         } else {
           const regionId = selRegion || (districts.length > 0 ? districts[0].region_id : undefined);
           if (!regionId) { alert('Select a region first.'); setSaving(false); return; }
-          await createDistrict(regionId, `District ${districts.length + 1}`, `${String(districts.length + 1).padStart(2, '0')}`);
-          // Then update its boundary
-          const dRes = await listDistricts(selectedCountry.id);
-          const newD = dRes.data[dRes.data.length - 1];
-          if (newD) await updateDistrict(newD.id, { boundary_geojson: geojson });
+          const dRes = await createDistrict(regionId, 'New District', `${String(districts.length + 1).padStart(2, '0')}`);
+          const newDId = dRes.data?.id;
+          if (newDId) await updateDistrict(newDId, { boundary_geojson: geojson });
+          await loadData();
+          setDrawing(false); setDrawPoints([]); setEditItem(null); setDrawTarget(null);
+          setNameModalType('district');
+          setNameModalTarget(regionId);
+          setNameModalOpen(true);
+          setSaving(false);
+          return;
         }
       } else if (drawTarget === 'region') {
         if (editItem) {
           await updateRegion(editItem.id, { boundary_geojson: geojson });
         } else {
-          const rRes = await createRegion(selectedCountry.id, `Region ${new Date().getTime()}`, `${String(Math.floor(Math.random() * 90 + 10))}`);
+          // After drawing, prompt for name then create
+          setDrawing(false); setDrawPoints([]); setEditItem(null); setDrawTarget(null);
+          await loadData();
+          const latest = await listRegions(selectedCountry.id);
+          // Find the region we just drew by looking for one without boundary
+          // Actually simpler: create with temp name, then rename via modal
+          const rRes = await createRegion(selectedCountry.id, 'New Region', `${String(Math.floor(Math.random() * 90 + 10))}`);
           if (rRes.data?.id) {
             await updateRegion(rRes.data.id, { boundary_geojson: geojson });
+            await loadData();
+            setNameModalType('region');
+            setNameModalTarget(rRes.data.id);
+            setNameModalOpen(true);
           }
+          setSaving(false);
+          return;
         }
       } else if (drawTarget === 'country') {
         await updateCountryBoundary(selectedCountry.id, { boundary_geojson: geojson });
@@ -569,6 +658,31 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       setSelectedZone(prev => prev ? { ...prev, color } : null);
     } catch (err) { alert('Color update failed: ' + (err.response?.data?.detail || err.message)); }
   }, [loadData]);
+
+  const closeNameModal = useCallback(() => {
+    setNameModalOpen(false);
+    setNameModalType(null);
+    setNameModalTarget(null);
+    setCustomName('');
+    setSelectedPresetName('');
+  }, []);
+
+  const submitNameModal = useCallback(async () => {
+    const name = customName.trim() || selectedPresetName;
+    if (!name) { alert('Please select or enter a name.'); return; }
+    if (nameModalType === 'region') {
+      try {
+        await createRegion(selectedCountry.id, name, `${String(Math.floor(Math.random() * 90 + 10))}`);
+        await loadData();
+      } catch (err) { alert('Region creation failed: ' + (err.response?.data?.detail || err.message)); }
+    } else if (nameModalType === 'district') {
+      try {
+        await createDistrict(nameModalTarget, name, `${String(Math.floor(Math.random() * 90 + 10))}`);
+        await loadData();
+      } catch (err) { alert('District creation failed: ' + (err.response?.data?.detail || err.message)); }
+    }
+    closeNameModal();
+  }, [customName, selectedPresetName, nameModalType, nameModalTarget, selectedCountry, loadData, closeNameModal]);
 
   const clearSelections = useCallback(() => {
     // Hide whatever is currently selected instead of just deselecting
@@ -1074,6 +1188,44 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                 {generatingReport ? 'Generating...' : '📥 Download PDF'}
               </button>
             )}
+          </div>
+        )}
+
+        {/* Naming Modal */}
+        {nameModalOpen && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 420, width: '90%', boxShadow: '0 8px 40px rgba(0,0,0,0.2)' }}>
+              <div style={{ fontWeight: 700, fontSize: 16, color: '#1a1a2e', marginBottom: 16 }}>
+                {nameModalType === 'region' ? '🗺️ Name this Region' : '📍 Name this District'}
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Choose from list or type a custom name:</div>
+                <select
+                  value={selectedPresetName}
+                  onChange={(e) => { setSelectedPresetName(e.target.value); setCustomName(''); }}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 13, marginBottom: 10 }}
+                >
+                  <option value="">-- Select from list --</option>
+                  {(nameModalType === 'region' ? PREDEFINED_REGION_NAMES : PREDEFINED_DISTRICT_NAMES).map(n => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11, color: '#999', textAlign: 'center', marginBottom: 8 }}>— or —</div>
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder={`Custom ${nameModalType} name...`}
+                  value={customName}
+                  onChange={(e) => { setCustomName(e.target.value); setSelectedPresetName(''); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') submitNameModal(); }}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 13 }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button style={{ ...styles.btnS, fontSize: 13, padding: '8px 16px' }} onClick={closeNameModal}>Cancel</button>
+                <button style={{ ...styles.btn, fontSize: 13, padding: '8px 16px' }} onClick={submitNameModal}>Save Name</button>
+              </div>
+            </div>
           </div>
         )}
       </div>

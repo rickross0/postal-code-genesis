@@ -333,6 +333,52 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       doc.text(`Generated: ${new Date().toLocaleString()}`, pageW / 2, 65, { align: 'center' });
       doc.text(`Selected areas: ${selectedReportItems.size}`, pageW / 2, 72, { align: 'center' });
 
+      // License Pricing Section
+      doc.setFontSize(14);
+      doc.setTextColor(108, 99, 255);
+      doc.text('Software License Pricing', pageW / 2, 82, { align: 'center' });
+      doc.setFontSize(10);
+      doc.setTextColor(80, 80, 80);
+
+      const plans = [
+        { name: '2-Year Plan', price: 13879, period: 2 },
+        { name: 'Annual Plan', price: 8900, period: 1 },
+        { name: '20-Year Membership', price: 150000, period: 20 },
+      ];
+
+      // Calculate effective annual cost for each
+      plans.forEach(p => { p.annual = p.price / p.period; });
+
+      // Calculate savings compared to annual plan
+      const annualTotal20yr = plans[1].annual * 20;
+      plans.forEach(p => {
+        if (p.period === 20) {
+          p.savings = annualTotal20yr - p.price;
+          p.savingsLabel = `Save $${p.savings.toLocaleString()} vs Annual × 20yr`;
+        } else {
+          p.savings = annualTotal20yr - (p.price * (20 / p.period));
+          p.savingsLabel = `Save $${(annualTotal20yr - p.price * (20/p.period)).toLocaleString()} vs Annual × 20yr`;
+        }
+      });
+
+      // Build license table
+      const licBody = plans.map(p => [
+        p.name,
+        `$${p.price.toLocaleString()}`,
+        `$${Math.round(p.annual).toLocaleString()}/yr`,
+        p.savingsLabel,
+      ]);
+
+      autoTable(doc, {
+        startY: 87,
+        head: [['Plan', 'Total Price', 'Effective Annual', '20-Year Savings']],
+        body: licBody,
+        theme: 'striped',
+        headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+        styles: { fontSize: 10, cellPadding: 2 },
+        margin: { left: margin, right: margin },
+      });
+
       // Zoom map to selected report items before capture
       if (mapInstance && selectedReportItems.size > 0) {
         zoomToReportItems();

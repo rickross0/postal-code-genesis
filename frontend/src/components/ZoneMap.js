@@ -892,7 +892,10 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           <div style={{ position: 'absolute', bottom: 20, right: 20, background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 2px 12px rgba(0,0,0,.12)', maxWidth: 260, zIndex: 1000, fontSize: '12px', maxHeight: '35vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: '#1a1a2e' }}>📄 Report Selection ({selectedReportItems.size})</div>
-              <button style={{ background: 'none', border: 'none', fontSize: 12, cursor: 'pointer', color: '#999' }} onClick={clearReportSelection}>Clear</button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button style={{ background: 'none', border: 'none', fontSize: 12, cursor: 'pointer', color: '#999' }} onClick={clearReportSelection}>Clear</button>
+                <button style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: '#999', lineHeight: 1, padding: 0 }} onClick={() => { setReportMode(false); clearReportSelection(); }} title="Close report panel">✕</button>
+              </div>
             </div>
             {selectedReportItems.size === 0 && <div style={{ fontSize: 11, color: '#999' }}>Click regions, districts, or zones on the map to add them.</div>}
             {Array.from(selectedReportItems).map(key => {

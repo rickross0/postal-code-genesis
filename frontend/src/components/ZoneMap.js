@@ -65,7 +65,6 @@ function useMapScreenshot() {
       scale: 2,
       logging: false,
       backgroundColor: '#f0f0f5',
-      foreignObjectRendering: true,
     });
     return canvas.toDataURL('image/png');
   };
@@ -583,7 +582,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
 
       <div style={styles.mapWrap} ref={mapWrapRef}>
         <MapContainer center={[4.85, 31.6]} zoom={6} style={{ height: '100%', width: '100%' }}>
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" updateWhenIdle={true} updateWhenZooming={false} />
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" crossOrigin="anonymous" updateWhenIdle={true} updateWhenZooming={false} />
           <FitBounds zones={zones} cid={selectedCountry.id} />
           <ClickH onClick={onMapClick} />
 

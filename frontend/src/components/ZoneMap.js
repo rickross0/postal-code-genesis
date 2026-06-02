@@ -160,7 +160,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       }
     }
     if (bounds && bounds.isValid()) {
-      mapInstance.fitBounds(bounds, { padding: [60, 60], maxZoom: 16 });
+      mapInstance.fitBounds(bounds, { padding: [60, 60], maxZoom: 16, animate: false, duration: 0 });
     }
   }, [mapInstance, zones, districts, regions]);
 
@@ -204,7 +204,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     });
     if (points.length > 0) {
       const bounds = L.latLngBounds(points);
-      if (bounds.isValid()) mapInstance.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+      if (bounds.isValid()) mapInstance.fitBounds(bounds, { padding: [50, 50], maxZoom: 16, animate: false, duration: 0 });
     }
   }, [mapInstance, selectedReportItems, zones, districts, regions]);
 
@@ -506,47 +506,42 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       const formatLines = doc.splitTextToSize('Postal Code Format: RRDDNNN (Region 2 letters + District 2 letters + 3-digit number)', pageW - margin * 2);
       doc.text(formatLines, pageW / 2, 78, { align: 'center' });
 
+      // Detail line
+      doc.setFontSize(10);
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Report covers ${selectedReportItems.size} selected area(s). See following pages for map and details.`, pageW / 2, 90, { align: 'center' });
+
+      // PAGE 2 — Map screenshot (dedicated page, no text overlap)
+      doc.addPage();
 
       // Zoom map to selected report items before capture
       if (mapInstance && selectedReportItems.size > 0) {
-        // Ensure map knows its container size before calculating bounds
         mapInstance.invalidateSize();
-        // Use animate:false for instant, predictable view change (no motion blur in screenshot)
         const movePromise = waitForMapMoveEnd();
         zoomToReportItems();
         await movePromise;
-        // Wait for tiles + GeoJSON SVG layers to render after view change
-        await new Promise(r => setTimeout(r, 1800));
+        await new Promise(r => setTimeout(r, 2000)); // tiles + GeoJSON SVG render
       }
 
-      // Capture ONLY the leaflet map container (not UI overlays like legends, toolbars, info panels)
+      // Capture the leaflet map container
       const mapContainerEl = mapInstance ? mapInstance.getContainer() : mapWrapRef.current;
       const imgData = await captureMap(mapContainerEl);
 
-      // Preserve aspect ratio of captured image; fit within page width and available height
+      // Full-page map image with small margins, preserving aspect ratio
       let imgW = pageW - margin * 2;
-      let imgH = imgW * 0.55;
-      if (imgData) {
-        const tmpImg = new Image();
-        tmpImg.src = imgData;
-        // Synchronously estimate aspect ratio from the data URL canvas dimensions if possible,
-        // otherwise fall back to the map container's current client dimensions
-        const naturalW = tmpImg.naturalWidth || mapContainerEl?.clientWidth || 800;
-        const naturalH = tmpImg.naturalHeight || mapContainerEl?.clientHeight || 600;
-        const aspect = naturalH / naturalW;
-        imgH = imgW * aspect;
-        // If image is too tall for remaining page space, scale down
-        const maxH = pageH - 90 - margin; // leave room below image
-        if (imgH > maxH) {
-          imgH = maxH;
-          imgW = imgH / aspect;
-        }
-      }
-      const imgX = (pageW - imgW) / 2; // center horizontally
-      const imgY = 82;
+      let imgH = imgW * 0.75; // A4 aspect ratio is ~1.414, so map ~0.75 is typical landscape feel
+      const maxH = pageH - margin * 2;
+      if (imgH > maxH) imgH = maxH;
+      const imgX = margin;
+      const imgY = margin;
       doc.addImage(imgData, 'PNG', imgX, imgY, imgW, imgH);
 
-      // Summary table
+      // Label below map
+      doc.setFontSize(10);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Map of selected areas — ${selectedCountry.name || 'Country'}`, pageW / 2, imgY + imgH + 6, { align: 'center' });
+
+      // PAGE 3 — Summary table
       doc.addPage();
       doc.setFontSize(16);
       doc.setTextColor(26, 26, 46);

@@ -635,6 +635,7 @@ async def create_zone_manual(
         center_lat=row["center_lat"] or 0, center_lng=row["center_lng"] or 0,
         area_sq_km=row["area_sq_km"], population=row["population"],
         region_name=row["region_name"], district_name=row["district_name"],
+        district_id=row.get("district_id"),
         status=row["status"],
         color=row["color"],
         boundary_geojson=json.loads(row["boundary_geojson"]) if row["boundary_geojson"] else None,
@@ -672,6 +673,7 @@ async def list_zones(
             center_lat=r["center_lat"] or 0, center_lng=r["center_lng"] or 0,
             area_sq_km=r["area_sq_km"], population=r["population"],
             region_name=r["region_name"], district_name=r["district_name"],
+            district_id=r.get("district_id"),
             status=r["status"],
             color=r["color"],
             locked=bool(r.get("zone_locked", False)),
@@ -690,7 +692,7 @@ async def list_districts_with_boundaries(
     from sqlalchemy import text
     result = await db.execute(text("""
         SELECT
-            d.id, d.name, d.code, d.local_name,
+            d.id, d.name, d.code, d.local_name, d.region_id,
             ST_Y(d.center_point) AS center_lat,
             ST_X(d.center_point) AS center_lng,
             d.locked AS district_locked,
@@ -1392,6 +1394,7 @@ async def update_zone(
         center_lat=row["center_lat"] or 0, center_lng=row["center_lng"] or 0,
         area_sq_km=row["area_sq_km"], population=row["population"],
         region_name=row["region_name"], district_name=row["district_name"],
+        district_id=row.get("district_id"),
         status=row["status"],
         color=row["color"],
         boundary_geojson=json.loads(row["boundary_geojson"]) if row["boundary_geojson"] else None,

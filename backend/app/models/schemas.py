@@ -179,6 +179,7 @@ class ZoneResponse(BaseModel):
     status: Optional[str] = None
     region_name: Optional[str] = None
     district_name: Optional[str] = None
+    district_id: Optional[int] = None
     color: Optional[str] = None
     boundary_geojson: Optional[Any] = None
     locked: bool = False

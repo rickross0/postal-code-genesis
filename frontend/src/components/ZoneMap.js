@@ -192,6 +192,15 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     }
   }, [mapInstance, selectedReportItems, zones, districts, regions]);
 
+  const waitForMapMoveEnd = useCallback(() => {
+    return new Promise((resolve) => {
+      if (!mapInstance) { resolve(); return; }
+      const onMoveEnd = () => { mapInstance.off('moveend', onMoveEnd); resolve(); };
+      mapInstance.on('moveend', onMoveEnd);
+      setTimeout(() => { mapInstance.off('moveend', onMoveEnd); resolve(); }, 1500);
+    });
+  }, [mapInstance]);
+
   const toggleReportItem = useCallback((type, id) => {
     setSelectedReportItems(prev => {
       const key = `${type}-${id}`;
@@ -214,16 +223,20 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       if (mapInstance) {
         if (reportMode && selectedReportItems.size > 0) {
           zoomToReportItems();
-          await new Promise(r => setTimeout(r, 900)); // let tiles load after pan/zoom
+          await waitForMapMoveEnd();
+          await new Promise(r => setTimeout(r, 700)); // let tiles load after pan/zoom
         } else if (selectedZone) {
           zoomToFeature('zone', selectedZone.id);
-          await new Promise(r => setTimeout(r, 700));
+          await waitForMapMoveEnd();
+          await new Promise(r => setTimeout(r, 500));
         } else if (selDistrict) {
           zoomToFeature('district', selDistrict);
-          await new Promise(r => setTimeout(r, 700));
+          await waitForMapMoveEnd();
+          await new Promise(r => setTimeout(r, 500));
         } else if (selRegion) {
           zoomToFeature('region', selRegion);
-          await new Promise(r => setTimeout(r, 700));
+          await waitForMapMoveEnd();
+          await new Promise(r => setTimeout(r, 500));
         }
         // If nothing is selected, capture the current view without zooming out
       }
@@ -265,7 +278,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       link.click();
     } catch (e) { console.error('Screenshot failed:', e); alert('Screenshot failed'); }
     finally { setGeneratingReport(false); }
-  }, [captureMap, selectedCountry, mapInstance, zones, regions, districts, hiddenMap]);
+  }, [captureMap, selectedCountry, mapInstance, zones, regions, districts, hiddenMap, reportMode, selectedReportItems, selectedZone, selDistrict, selRegion, zoomToReportItems, zoomToFeature, waitForMapMoveEnd]);
 
   const estimateCost = useCallback((area_sq_km, population) => {
     // Rough implementation cost estimate
@@ -461,6 +474,9 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       doc.setFontSize(11);
       doc.text(`Generated: ${new Date().toLocaleString()}`, pageW / 2, 65, { align: 'center' });
       doc.text(`Selected areas: ${selectedReportItems.size}`, pageW / 2, 72, { align: 'center' });
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      doc.text('Postal Code Format: RRDDNNN (Region 2 letters + District 2 letters + 3-digit number)', pageW / 2, 78, { align: 'center' });
 
       // License Pricing Section
       doc.setFontSize(14);
@@ -519,14 +535,16 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       // Zoom map to selected report items before capture
       if (mapInstance && selectedReportItems.size > 0) {
         zoomToReportItems();
-        await new Promise(r => setTimeout(r, 900)); // let tiles load after pan/zoom
+        await waitForMapMoveEnd();
+        await new Promise(r => setTimeout(r, 700)); // let tiles load after pan/zoom
       }
 
-      // Map screenshot
+      // Map screenshot placed AFTER license table so it doesn't overlap
       const imgData = await captureMap(mapWrapRef.current);
       const imgW = pageW - margin * 2;
       const imgH = imgW * 0.6;
-      doc.addImage(imgData, 'PNG', margin, 85, imgW, imgH);
+      const imgY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 14 : 140;
+      doc.addImage(imgData, 'PNG', margin, imgY, imgW, imgH);
 
       // Summary table
       doc.addPage();
@@ -537,20 +555,30 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       const tableBody = [];
       reportItems.forEach(item => {
         if (item.type === 'region') {
+          const regionPostals = item.zones.map(z => z.postal_code).filter(Boolean).sort();
+          const postalRange = regionPostals.length > 1
+            ? `${regionPostals[0]} → ${regionPostals[regionPostals.length - 1]}`
+            : (regionPostals[0] || '-');
           tableBody.push([
             'Region',
             item.data.name,
             item.data.code || '-',
             item.districts.length,
             item.zones.length,
+            postalRange,
           ]);
         } else if (item.type === 'district') {
+          const distPostals = item.zones.map(z => z.postal_code).filter(Boolean).sort();
+          const postalRange = distPostals.length > 1
+            ? `${distPostals[0]} → ${distPostals[distPostals.length - 1]}`
+            : (distPostals[0] || '-');
           tableBody.push([
             'District',
             item.data.name,
             item.data.code || '-',
             '-',
             item.zones.length,
+            postalRange,
           ]);
         } else {
           tableBody.push([
@@ -559,13 +587,14 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             item.data.postal_code || '-',
             '-',
             '-',
+            '-',
           ]);
         }
       });
 
       autoTable(doc, {
         startY: 28,
-        head: [['Type', 'Name', 'Code / Postal', 'Districts', 'Zones']],
+        head: [['Type', 'Name', 'Code', 'Districts', 'Zones', 'Postal Code Range']],
         body: tableBody,
         theme: 'striped',
         headStyles: { fillColor: [108, 99, 255], textColor: 255 },
@@ -601,40 +630,77 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           doc.setFontSize(9);
           doc.setTextColor(120, 120, 120);
           doc.text(regionCost.breakdown, margin, 60);
+
+          // Districts overview table
           if (item.districts.length) {
             const startY = 66;
             doc.setFontSize(13);
             doc.setTextColor(26, 26, 46);
-            doc.text('Districts', margin, startY);
+            doc.text('Districts Overview', margin, startY);
             autoTable(doc, {
               startY: startY + 4,
-              head: [['District', 'Code', 'Zones']],
-              body: item.districts.map(d => [d.name, d.code || '-', item.zones.filter(z => z.district_id === d.id).length]),
+              head: [['District', 'Code', 'Zones', 'Postal Code Range']],
+              body: item.districts.map(d => {
+                const dZones = item.zones.filter(z => z.district_id === d.id);
+                const dPostals = dZones.map(z => z.postal_code).filter(Boolean).sort();
+                const range = dPostals.length > 1
+                  ? `${dPostals[0]} → ${dPostals[dPostals.length - 1]}`
+                  : (dPostals[0] || '-');
+                return [d.name, d.code || '-', dZones.length, range];
+              }),
               theme: 'striped',
               headStyles: { fillColor: [108, 99, 255], textColor: 255 },
               styles: { fontSize: 10, cellPadding: 2 },
               margin: { left: margin, right: margin },
             });
           }
-          if (item.zones.length) {
-            const startY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 8 : 74;
-            doc.setFontSize(13);
-            doc.setTextColor(26, 26, 46);
-            doc.text('Postal Zones', margin, startY);
-            autoTable(doc, {
-              startY: startY + 4,
-              head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
-              body: item.zones.map(z => [
-                z.postal_code || '-',
-                z.name,
-                z.population != null ? z.population.toLocaleString() : '-',
-                z.area_sq_km != null ? z.area_sq_km.toLocaleString() : '-',
-                z.status || '-',
-              ]),
-              theme: 'striped',
-              headStyles: { fillColor: [108, 99, 255], textColor: 255 },
-              styles: { fontSize: 10, cellPadding: 2 },
-              margin: { left: margin, right: margin },
+
+          // Per-district zone tables
+          if (item.districts.length) {
+            item.districts.forEach(d => {
+              const dZones = item.zones.filter(z => z.district_id === d.id);
+              if (!dZones.length) return;
+              const y = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 80;
+              if (y > 250) {
+                doc.addPage();
+                doc.setFontSize(13);
+                doc.setTextColor(26, 26, 46);
+                doc.text(`District: ${d.name} — Postal Zones`, margin, 20);
+                autoTable(doc, {
+                  startY: 24,
+                  head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
+                  body: dZones.map(z => [
+                    z.postal_code || '-',
+                    z.name,
+                    z.population != null ? z.population.toLocaleString() : '-',
+                    z.area_sq_km != null ? z.area_sq_km.toLocaleString() : '-',
+                    z.status || '-',
+                  ]),
+                  theme: 'striped',
+                  headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+                  styles: { fontSize: 10, cellPadding: 2 },
+                  margin: { left: margin, right: margin },
+                });
+              } else {
+                doc.setFontSize(12);
+                doc.setTextColor(26, 26, 46);
+                doc.text(`District: ${d.name} — Postal Zones`, margin, y);
+                autoTable(doc, {
+                  startY: y + 4,
+                  head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
+                  body: dZones.map(z => [
+                    z.postal_code || '-',
+                    z.name,
+                    z.population != null ? z.population.toLocaleString() : '-',
+                    z.area_sq_km != null ? z.area_sq_km.toLocaleString() : '-',
+                    z.status || '-',
+                  ]),
+                  theme: 'striped',
+                  headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+                  styles: { fontSize: 10, cellPadding: 2 },
+                  margin: { left: margin, right: margin },
+                });
+              }
             });
           }
         } else if (item.type === 'district') {
@@ -697,7 +763,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       doc.save(`${selectedCountry.name || 'report'}-postal-genesis-${new Date().toISOString().slice(0,10)}.pdf`);
     } catch (e) { console.error('PDF generation failed:', e); alert('PDF generation failed: ' + e.message); }
     finally { setGeneratingReport(false); }
-  }, [captureMap, selectedCountry, selectedReportItems, buildReportData, estimateCost]);
+  }, [captureMap, selectedCountry, selectedReportItems, buildReportData, estimateCost, mapInstance, zoomToReportItems, waitForMapMoveEnd]);
 
   const loadSnapshots = useCallback(async () =>{
     if (!selectedCountry) return;

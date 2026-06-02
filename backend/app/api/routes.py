@@ -912,14 +912,22 @@ async def delete_all_regions(
 ):
     """Delete all regions for a country (cascades to districts and zones). Use as undo for auto-regions."""
     from sqlalchemy import select
-    result = await db.execute(select(Region).where(Region.country_id == country_id))
-    regions = result.scalars().all()
-    for region in regions:
-        if region.locked:
-            raise HTTPException(423, f"Region {region.name} is locked. Unlock it first.")
-        await db.delete(region)
-    await db.flush()
-    return {"detail": f"Deleted {len(regions)} regions", "count": len(regions)}
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        result = await db.execute(select(Region).where(Region.country_id == country_id))
+        regions = result.scalars().all()
+        for region in regions:
+            if region.locked:
+                raise HTTPException(423, f"Region {region.name} is locked. Unlock it first.")
+            await db.delete(region)
+        await db.flush()
+        return {"detail": f"Deleted {len(regions)} regions", "count": len(regions)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"delete_all_regions failed: {e}")
+        raise HTTPException(500, f"Failed to delete regions: {str(e)}")
 
 
 @router.put("/regions/{region_id}")
@@ -1843,115 +1851,138 @@ async def restore_snapshot(
     from geoalchemy2.shape import from_shape
     from shapely.geometry import shape
     import json
+    import logging
     from app.models.database import DrawingSnapshot, Region, District, PostalZone
+
+    logger = logging.getLogger(__name__)
 
     snap_res = await db.execute(select(DrawingSnapshot).where(DrawingSnapshot.id == snapshot_id, DrawingSnapshot.country_id == country_id))
     snap = snap_res.scalar_one_or_none()
     if not snap:
         raise HTTPException(404, "Snapshot not found")
 
-    data = json.loads(snap.snapshot)
+    try:
+        data = json.loads(snap.snapshot)
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse snapshot JSON: {e}")
+        raise HTTPException(500, f"Invalid snapshot data: {e}")
 
-    # Delete current regions using ORM so SQLAlchemy cascades work properly
-    # Raw SQL DELETE would orphan districts and zones, causing unique constraint errors on restore
-    reg_res = await db.execute(select(Region).where(Region.country_id == country_id))
-    for reg in reg_res.scalars().all():
-        await db.delete(reg)
-    await db.flush()
-
-    # Restore regions
-    region_id_map = {}  # old_id -> new_id
-    for r in data.get("regions", []):
-        reg = Region(
-            country_id=country_id,
-            name=r["name"],
-            code=r["code"],
-            locked=r.get("locked", False),
-        )
-        if r.get("boundary_geojson"):
-            try:
-                geom = shape(r["boundary_geojson"])
-                if not geom.is_valid:
-                    geom = geom.buffer(0)
-                reg.boundary = from_shape(geom, srid=4326)
-            except Exception:
-                pass
-        if r.get("center_geojson"):
-            try:
-                geom = shape(r["center_geojson"])
-                reg.center_point = from_shape(geom, srid=4326)
-            except Exception:
-                pass
-        db.add(reg)
-        await db.flush()
-        await db.refresh(reg)
-        region_id_map[r["id"]] = reg.id
-
-    # Restore districts
-    district_id_map = {}  # old_id -> new_id
-    for d in data.get("districts", []):
-        new_region_id = region_id_map.get(d["region_id"])
-        if not new_region_id:
-            continue
-        dist = District(
-            region_id=new_region_id,
-            name=d["name"],
-            code=d["code"],
-            locked=d.get("locked", False),
-        )
-        if d.get("boundary_geojson"):
-            try:
-                geom = shape(d["boundary_geojson"])
-                if not geom.is_valid:
-                    geom = geom.buffer(0)
-                dist.boundary = from_shape(geom, srid=4326)
-            except Exception:
-                pass
-        if d.get("center_geojson"):
-            try:
-                geom = shape(d["center_geojson"])
-                dist.center_point = from_shape(geom, srid=4326)
-            except Exception:
-                pass
-        db.add(dist)
-        await db.flush()
-        await db.refresh(dist)
-        district_id_map[d["id"]] = dist.id
-
-    # Restore zones
-    for z in data.get("zones", []):
-        new_district_id = district_id_map.get(z["district_id"])
-        if not new_district_id:
-            continue
-        zone = PostalZone(
-            district_id=new_district_id,
-            postal_code=z["postal_code"],
-            name=z["name"],
-            status=z.get("status", "active"),
-            population=z.get("population"),
-            area_sq_km=z.get("area_sq_km"),
-            color=z.get("color"),
-            locked=z.get("locked", False),
-        )
-        if z.get("boundary_geojson"):
-            try:
-                geom = shape(z["boundary_geojson"])
-                if not geom.is_valid:
-                    geom = geom.buffer(0)
-                zone.boundary = from_shape(geom, srid=4326)
-            except Exception:
-                pass
-        if z.get("center_geojson"):
-            try:
-                geom = shape(z["center_geojson"])
-                zone.center_point = from_shape(geom, srid=4326)
-            except Exception:
-                pass
-        db.add(zone)
+    try:
+        # Delete current regions using ORM so SQLAlchemy cascades work properly
+        # Raw SQL DELETE would orphan districts and zones, causing unique constraint errors on restore
+        reg_res = await db.execute(select(Region).where(Region.country_id == country_id))
+        regions_to_delete = reg_res.scalars().all()
+        for reg in regions_to_delete:
+            await db.delete(reg)
         await db.flush()
 
-    await db.flush()
-    return {"detail": "Snapshot restored", "regions": len(data.get("regions", [])), "districts": len(data.get("districts", [])), "zones": len(data.get("zones", []))}
+        # Restore regions
+        region_id_map = {}  # old_id -> new_id
+        for r in data.get("regions", []):
+            reg = Region(
+                country_id=country_id,
+                name=r["name"],
+                code=r["code"],
+                locked=r.get("locked", False),
+            )
+            if r.get("boundary_geojson"):
+                try:
+                    geom = shape(r["boundary_geojson"])
+                    if not geom.is_valid:
+                        geom = geom.buffer(0)
+                    reg.boundary = from_shape(geom, srid=4326)
+                except Exception as e:
+                    logger.warning(f"Skipping invalid region boundary for {r.get('name')}: {e}")
+            if r.get("center_geojson"):
+                try:
+                    geom = shape(r["center_geojson"])
+                    reg.center_point = from_shape(geom, srid=4326)
+                except Exception as e:
+                    logger.warning(f"Skipping invalid region center for {r.get('name')}: {e}")
+            db.add(reg)
+            await db.flush()
+            await db.refresh(reg)
+            region_id_map[r["id"]] = reg.id
+
+        # Restore districts
+        district_id_map = {}  # old_id -> new_id
+        for d in data.get("districts", []):
+            new_region_id = region_id_map.get(d["region_id"])
+            if not new_region_id:
+                logger.warning(f"District {d.get('name')} references missing region_id {d.get('region_id')}, skipping")
+                continue
+            dist = District(
+                region_id=new_region_id,
+                name=d["name"],
+                code=d["code"],
+                locked=d.get("locked", False),
+            )
+            if d.get("boundary_geojson"):
+                try:
+                    geom = shape(d["boundary_geojson"])
+                    if not geom.is_valid:
+                        geom = geom.buffer(0)
+                    dist.boundary = from_shape(geom, srid=4326)
+                except Exception as e:
+                    logger.warning(f"Skipping invalid district boundary for {d.get('name')}: {e}")
+            if d.get("center_geojson"):
+                try:
+                    geom = shape(d["center_geojson"])
+                    dist.center_point = from_shape(geom, srid=4326)
+                except Exception as e:
+                    logger.warning(f"Skipping invalid district center for {d.get('name')}: {e}")
+            db.add(dist)
+            await db.flush()
+            await db.refresh(dist)
+            district_id_map[d["id"]] = dist.id
+
+        # Restore zones
+        restored_zones = 0
+        for z in data.get("zones", []):
+            new_district_id = district_id_map.get(z["district_id"])
+            if not new_district_id:
+                logger.warning(f"Zone {z.get('name')} references missing district_id {z.get('district_id')}, skipping")
+                continue
+            zone = PostalZone(
+                district_id=new_district_id,
+                postal_code=z["postal_code"],
+                name=z["name"],
+                status=z.get("status", "active"),
+                population=z.get("population"),
+                area_sq_km=z.get("area_sq_km"),
+                color=z.get("color"),
+                locked=z.get("locked", False),
+            )
+            if z.get("boundary_geojson"):
+                try:
+                    geom = shape(z["boundary_geojson"])
+                    if not geom.is_valid:
+                        geom = geom.buffer(0)
+                    zone.boundary = from_shape(geom, srid=4326)
+                except Exception as e:
+                    logger.warning(f"Skipping invalid zone boundary for {z.get('name')}: {e}")
+            if z.get("center_geojson"):
+                try:
+                    geom = shape(z["center_geojson"])
+                    zone.center_point = from_shape(geom, srid=4326)
+                except Exception as e:
+                    logger.warning(f"Skipping invalid zone center for {z.get('name')}: {e}")
+            db.add(zone)
+            await db.flush()
+            restored_zones += 1
+
+        await db.flush()
+        return {
+            "detail": "Snapshot restored",
+            "regions": len(data.get("regions", [])),
+            "districts": len(data.get("districts", [])),
+            "zones": restored_zones,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Snapshot restore failed: {e}")
+        raise HTTPException(500, f"Restore failed: {str(e)}")
 
 
 # ── Zone Split ───────────────────────────────────────────

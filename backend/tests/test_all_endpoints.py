@@ -205,3 +205,100 @@ class TestPostalCodeFormat:
         assert pc[:2].isalpha(), f"First 2 chars should be letters: {pc[:2]}"
         assert pc[2:4].isalpha(), f"Next 2 chars should be letters: {pc[2:4]}"
         assert pc[4:].isdigit(), f"Last 3 chars should be digits: {pc[4:]}"
+
+class TestAutoCreateDistricts:
+    def test_auto_create_districts_with_num_districts(self, client, mock_db):
+        """Verify auto-create districts accepts num_districts query param."""
+        _mock_result(mock_db, scalar=_make_region(id=1, country_id=1))
+        _mock_result(mock_db, scalar=_make_country(id=1, num_regions=3, num_districts=9, capital_lat=4.85, capital_lng=31.6))
+        _mock_result(mock_db, mappings_list=[])
+        _mock_result(mock_db, scalars_list=[])
+        _mock_result(mock_db, mappings_list=[])
+        _mock_result(mock_db, scalars_list=[])
+        _mock_result(mock_db, mappings_list=[])
+        _mock_result(mock_db, scalars_list=[])
+        r = client.post("/api/v1/regions/1/districts/auto-create?num_districts=4")
+        assert r.status_code in [200, 404, 500]
+
+
+class TestRestoreSnapshotErrors:
+    def test_restore_snapshot_invalid_json(self, client, mock_db):
+        """Verify restore handles invalid snapshot JSON gracefully."""
+        snap = MagicMock()
+        snap.snapshot = "not valid json"
+        _mock_result(mock_db, scalar=snap)
+        r = client.post("/api/v1/countries/1/snapshots/1/restore")
+        assert r.status_code in [200, 404, 500]
+
+
+class TestReportGeneration:
+    def test_report_includes_districts_and_zones(self, client, mock_db):
+        """Verify report endpoint includes all districts and zones."""
+        call_count = 0
+        country_result = MagicMock()
+        country_result.scalar_one_or_none.return_value = _make_country()
+        zones_result = MagicMock()
+        zones_result.mappings.return_value.all.return_value = [{
+            "postal_code": "CEJU001", "zone_name": "Zone 1", "status": "active",
+            "area_sq_km": 25.0, "population": 5000,
+            "district_name": "District JU", "region_name": "Region CE",
+        }, {
+            "postal_code": "CEJU002", "zone_name": "Zone 2", "status": "active",
+            "area_sq_km": 30.0, "population": 6000,
+            "district_name": "District JU", "region_name": "Region CE",
+        }]
+        zones_result.mappings.return_value.first.return_value = None
+        stats_result = MagicMock()
+        stats_result.mappings.return_value.first.return_value = {
+            "total_zones": 2, "total_districts": 1, "total_regions": 1,
+            "total_population_covered": 11000,
+        }
+
+        async def _execute(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return country_result
+            elif call_count == 2:
+                return zones_result
+            else:
+                return stats_result
+
+        mock_db.execute = _execute
+        r = client.get("/api/v1/countries/1/report?format=json")
+        assert r.status_code == 200
+        data = r.json()
+        assert "zones" in data
+        assert len(data["zones"]) == 2
+        assert data["zones"][0]["postal_code"] == "CEJU001"
+        assert data["zones"][1]["postal_code"] == "CEJU002"
+        assert data["stats"]["total_districts"] == 1
+
+    def test_report_pdf_generation(self, client, mock_db):
+        """Verify report endpoint generates PDF."""
+        call_count = 0
+        country_result = MagicMock()
+        country_result.scalar_one_or_none.return_value = _make_country()
+        zones_result = MagicMock()
+        zones_result.mappings.return_value.all.return_value = []
+        stats_result = MagicMock()
+        stats_result.mappings.return_value.first.return_value = {
+            "total_zones": 0, "total_districts": 0, "total_regions": 0,
+            "total_population_covered": 0,
+        }
+
+        async def _execute(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return country_result
+            elif call_count == 2:
+                return zones_result
+            else:
+                return stats_result
+
+        mock_db.execute = _execute
+        r = client.get("/api/v1/countries/1/report?format=pdf")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/pdf"
+

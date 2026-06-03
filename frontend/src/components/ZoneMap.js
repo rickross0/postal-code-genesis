@@ -39,11 +39,14 @@ const styles = {
   empty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: 16, textAlign: 'center', padding: 40 },
 };
 
-function DraggablePanel({ children, defaultPosition, title, style = {} }) {
+function DraggablePanel({ children, defaultPosition, title, style = {}, minimized = false }) {
   const [pos, setPos] = useState(defaultPosition);
+  const [isMinimized, setIsMinimized] = useState(minimized);
   const dragRef = useRef(null);
   const startPos = useRef({ x: 0, y: 0, initTop: 0, initLeft: 0 });
   const dragging = useRef(false);
+
+  useEffect(() => { setIsMinimized(minimized); }, [minimized]);
 
   const onPointerDown = useCallback((e) => {
     dragging.current = true;
@@ -97,22 +100,32 @@ function DraggablePanel({ children, defaultPosition, title, style = {} }) {
             cursor: 'grab',
             padding: '6px 10px',
             margin: '-12px -12px 8px -12px',
-            borderBottom: '1px solid #e8e8f0',
+            borderBottom: isMinimized ? 'none' : '1px solid #e8e8f0',
             fontWeight: 600,
             fontSize: 13,
             color: '#1a1a2e',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
             userSelect: 'none',
             borderRadius: '10px 10px 0 0',
           }}
           onMouseDown={(e) => e.preventDefault()}
         >
-          <span style={{ marginRight: 6, fontSize: 10, color: '#999' }}>⋮⋮</span>
-          {title}
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            <span style={{ marginRight: 6, fontSize: 10, color: '#999' }}>⋮⋮</span>
+            {title}
+          </div>
+          <button
+            style={{ background: 'none', border: 'none', fontSize: 14, cursor: 'pointer', color: '#999', padding: '0 4px', lineHeight: 1 }}
+            onClick={(e) => { e.stopPropagation(); setIsMinimized(v => !v); }}
+            title={isMinimized ? 'Expand' : 'Minimize'}
+          >
+            {isMinimized ? '▲' : '▼'}
+          </button>
         </div>
       )}
-      {children}
+      {!isMinimized && children}
     </div>
   );
 }
@@ -193,6 +206,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     'Waat', 'Ayod', 'Akobo', 'Leer', 'Mayom',
   ], []);
   const [snapshots, setSnapshots] = useState([]);
+  const [panelsMinimized, setPanelsMinimized] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [snapshotsVisible, setSnapshotsVisible] = useState(true);
   const [snapshotsPos, setSnapshotsPos] = useState('tl'); // 'tl','tr','bl','br'
@@ -1183,6 +1197,9 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         <span style={{ fontWeight: 700, fontSize: 14, color: '#1a1a2e' }}>{selectedCountry.name}</span>
         <span style={{ fontSize: 12, color: '#666' }}>({zones.length} zones, {districts.length} districts)</span>
         <div style={{ flex: 1 }} />
+        <button style={{ ...styles.btnS, border: '1px solid #999', color: '#666' }} onClick={() => setPanelsMinimized(v => !v)}>
+          {panelsMinimized ? '📤 Restore All' : '📥 Minimize All'}
+        </button>
         {selectedCountry?.boundary_geojson && !countryHidden && (
           <>
             <button style={{ ...styles.btnS, border: '1px solid #6c63ff', color: '#6c63ff' }} onClick={() => startDraw('country', null)}>✏️ Edit Border</button>
@@ -1333,7 +1350,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         )}
 
         {zones.length > 0 && !drawing && (
-          <DraggablePanel defaultPosition={{ top: 20, left: 20 }} title="Zones" style={styles.legend}>
+          <DraggablePanel defaultPosition={{ top: 20, left: 20 }} title="Zones" style={styles.legend} minimized={panelsMinimized}>
             <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
               {zones.filter(z => !isHidden(hiddenMap, 'z', z.id)).slice(0, 50).map((z) => {
                 const color = getZoneColor(z);
@@ -1362,7 +1379,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         )}
 
         {selectedZone && !drawing && (
-          <DraggablePanel defaultPosition={{ top: window.innerHeight - 220, left: window.innerWidth - 360 }} title="Zone" style={styles.info}>
+          <DraggablePanel defaultPosition={{ top: window.innerHeight - 220, left: window.innerWidth - 360 }} title="Zone" style={styles.info} minimized={panelsMinimized}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
                 <div style={{ fontSize: 22, fontWeight: 700, color: getZoneColor(selectedZone) }}>
@@ -1419,7 +1436,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         )}
 
         {selDistrict && !drawing && districts.find(d => d.id === selDistrict) && (
-          <DraggablePanel defaultPosition={{ top: window.innerHeight - 200, left: 20 }} title="District" style={{ background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }}>
+          <DraggablePanel defaultPosition={{ top: window.innerHeight - 200, left: 20 }} title="District" style={{ background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }} minimized={panelsMinimized}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               {editingName?.type === 'district' && editingName?.id === selDistrict ? (
                 <input
@@ -1458,7 +1475,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         )}
 
         {selRegion && !drawing && regions.find(r => r.id === selRegion) && (
-          <DraggablePanel defaultPosition={{ top: window.innerHeight - 280, left: 20 }} title="Region" style={{ background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }}>
+          <DraggablePanel defaultPosition={{ top: window.innerHeight - 280, left: 20 }} title="Region" style={{ background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }} minimized={panelsMinimized}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               {editingName?.type === 'region' && editingName?.id === selRegion ? (
                 <input
@@ -1504,7 +1521,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         )}
 
         {regions.length > 0 && !drawing && (
-          <DraggablePanel defaultPosition={{ top: 80, left: 20 }} title="Regions" style={{ background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 2px 12px rgba(0,0,0,.12)', maxWidth: 240, zIndex: 1000, fontSize: '12px', maxHeight: '40vh', overflowY: 'auto' }}>
+          <DraggablePanel defaultPosition={{ top: 80, left: 20 }} title="Regions" style={{ background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 2px 12px rgba(0,0,0,.12)', maxWidth: 240, zIndex: 1000, fontSize: '12px', maxHeight: '40vh', overflowY: 'auto' }} minimized={panelsMinimized}>
             <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, color: '#1a1a2e' }}>Regions</div>
             {regions.map((r) => {
               const color = REGION_COLORS[r.id % REGION_COLORS.length];

@@ -1341,7 +1341,14 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                   <div key={z.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, cursor: 'pointer' }} onClick={() => { setSelectedZone(z); zoomToFeature('zone', z.id); }}>
                     <div style={{ width: 12, height: 12, borderRadius: 3, background: color, border: '1px solid rgba(0,0,0,.1)' }} />
                     <span style={{ color: '#333', fontSize: 11 }}>{z.locked ? '🔒' : ''} {z.postal_code}</span>
-                    <span style={{ color: '#888', fontSize: 10 }}>- {z.name}</span>
+                    <span style={{ color: '#888', fontSize: 10, flex: 1 }}>- {z.name}</span>
+                    <button
+                      style={{ background: 'none', border: 'none', fontSize: 10, cursor: 'pointer', padding: 0, lineHeight: 1, color: z.locked ? '#ff6b6b' : '#999' }}
+                      title={z.locked ? 'Unlock' : 'Lock'}
+                      onClick={(e) => { e.stopPropagation(); toggleLock('zone', z.id, z.locked); }}
+                    >
+                      {z.locked ? '🔓' : '🔒'}
+                    </button>
                   </div>
                 );
               })}
@@ -1508,6 +1515,13 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                 <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, cursor: 'pointer', background: rRep ? '#fffce8' : (isSel ? '#f0f0f5' : 'transparent'), borderRadius: 4, padding: '2px 4px', opacity: hidden ? 0.4 : 1, border: rRep ? '1px solid #ffd43b' : '1px solid transparent' }} onClick={() => { if (reportMode) { toggleReportItem('region', r.id); } else if (hidden) { setHiddenMap(prev => { const next = { ...prev }; delete next[`r-${r.id}`]; return next; }); setSelRegion(r.id); setSelDistrict(null); zoomToFeature('region', r.id); } else { setSelRegion(isSel ? null : r.id); setSelDistrict(null); if (!isSel) zoomToFeature('region', r.id); } }}>
                   <div style={{ width: 12, height: 12, borderRadius: 3, background: color, border: '1px solid rgba(0,0,0,.1)' }} />
                   <span style={{ color: '#333', fontSize: 11, textDecoration: hidden ? 'line-through' : 'none', fontWeight: rRep ? 700 : 400 }}>{r.locked ? '🔒' : ''} {r.name} {hidden ? '👁️‍🗨️' : ''} {rRep ? '✅' : ''}</span>
+                  <button
+                    style={{ background: 'none', border: 'none', fontSize: 10, cursor: 'pointer', padding: 0, lineHeight: 1, color: r.locked ? '#ff6b6b' : '#999' }}
+                    title={r.locked ? 'Unlock' : 'Lock'}
+                    onClick={(e) => { e.stopPropagation(); toggleLock('region', r.id, r.locked); }}
+                  >
+                    {r.locked ? '🔓' : '🔒'}
+                  </button>
                   <span style={{ color: r.boundary_geojson ? '#51cf66' : '#ff6b6b', fontSize: 9 }}>{r.boundary_geojson ? '●' : '○'}</span>
                 </div>
               );

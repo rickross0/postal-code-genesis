@@ -692,7 +692,7 @@ async def list_districts_with_boundaries(
     from sqlalchemy import text
     result = await db.execute(text("""
         SELECT
-            d.id, d.name, d.code, d.local_name, d.region_id,
+            d.id, d.name, d.code, d.local_name, d.region_id, d.color,
             ST_Y(d.center_point) AS center_lat,
             ST_X(d.center_point) AS center_lng,
             d.locked AS district_locked,
@@ -1259,6 +1259,8 @@ async def update_district(
         raise HTTPException(423, "District is locked. Unlock it first to edit.")
     if update.name is not None:
         district.name = update.name
+    if update.color is not None:
+        district.color = update.color
     if update.locked is not None:
         district.locked = update.locked
     if update.boundary_geojson is not None:

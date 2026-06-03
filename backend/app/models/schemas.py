@@ -139,6 +139,7 @@ class BoundaryUpdate(BaseModel):
     """Update a boundary polygon and optionally lock/unlock."""
     boundary_geojson: Optional[Any] = None
     name: Optional[str] = None
+    color: Optional[str] = None
     locked: Optional[bool] = None
 
 

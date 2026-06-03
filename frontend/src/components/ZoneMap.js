@@ -20,6 +20,13 @@ const ZONE_COLORS = [
 ];
 
 const getZoneColor = (zone) => zone?.color || ZONE_COLORS[(zone?.id || 0) % ZONE_COLORS.length];
+const DISTRICT_COLORS = [
+  '#e6194b','#3cb44b','#ffe119','#4363d8','#f58231',
+  '#911eb4','#42d4f4','#f032e6','#bfef45','#fabed4',
+  '#469990','#dcbeff','#9A6324','#fffac8','#800000',
+  '#aaffc3','#808000','#ffd8b1','#000075','#a9a9a9',
+];
+const getDistrictColor = (district) => district?.color || DISTRICT_COLORS[(district?.id || 0) % DISTRICT_COLORS.length];
 const isHidden = (map, type, id) => !!map[`${type}-${id}`];
 
 const REGION_COLORS = ['#6c63ff','#ff6b6b','#51cf66','#ffd43b','#339af0','#f06595'];
@@ -1283,11 +1290,12 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           {districts.filter(d => !isHidden(hiddenMap, 'd', d.id)).map((d, i) => {
             const isSel = selDistrict === d.id;
             const rSel = isReportSelected('district', d.id);
-            const col = rSel ? '#ffd43b' : (isSel ? '#6c63ff' : (i % 2 === 0 ? '#888' : '#aaa'));
+            const dColor = getDistrictColor(d);
+            const col = rSel ? '#ffd43b' : (isSel ? '#1a1a2e' : dColor);
             return d.boundary_geojson ? (
               <GeoJSON key={`d-${d.id}-${d.boundary_geojson?.type||""}`} data={d.boundary_geojson} style={() => ({
-                color: col, weight: rSel ? 6 : (isSel ? 3 : 2), fillColor: rSel ? '#ffd43b' : (isSel ? '#6c63ff' : '#ccc'),
-                fillOpacity: rSel ? 0.55 : (isSel ? 0.25 : 0.12), dashArray: (d.locked && !rSel) ? '8,4' : undefined,
+                color: col, weight: rSel ? 6 : (isSel ? 3 : 2), fillColor: rSel ? '#ffd43b' : (isSel ? dColor : dColor),
+                fillOpacity: rSel ? 0.55 : (isSel ? 0.35 : 0.18), dashArray: (d.locked && !rSel) ? '8,4' : undefined,
               })} eventHandlers={{
                 click: () => { if (!drawing) { if (reportMode) { toggleReportItem('district', d.id); } else { setSelDistrict(isSel ? null : d.id); setSelRegion(d.region_id); if (!isSel) zoomToFeature('district', d.id); } } },
               }} />
@@ -1632,34 +1640,22 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             minimized={districtsPanelMinimized}
             onClose={() => setShowDistrictsPanel(false)}
           >
-            {regions.length === 0 && districts.length === 0 && (
-              <div style={{ fontSize: 11, color: '#999', padding: '8px 0' }}>No regions or districts yet. Use Auto-Fill to generate them.</div>
+            {districts.length === 0 && (
+              <div style={{ fontSize: 11, color: '#999', padding: '8px 0' }}>No districts yet. Use Auto-Fill to generate them.</div>
             )}
-            {regions.map((r) => (
-              <div key={r.id} style={{ marginBottom: 10, borderRadius: 8, border: '1px solid #e8e8f0', overflow: 'hidden' }}>
-                <div
-                  style={{ padding: '6px 8px', background: REGION_COLORS[r.id % REGION_COLORS.length] + '18', fontWeight: 600, fontSize: 12, color: '#1a1a2e', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                  onClick={() => { setSelRegion(r.id); zoomToFeature('region', r.id); }}
-                >
-                  <span>🗺️ {r.name}</span>
-                  <span style={{ fontSize: 10, color: '#666' }}>{r.code}</span>
+            {districts.slice().sort((a, b) => (a.region_name || '').localeCompare(b.region_name || '') || a.name.localeCompare(b.name)).map((d) => (
+              <div key={d.id} style={{ marginBottom: 6, borderRadius: 6, border: '1px solid #e8e8f0', padding: '5px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="color"
+                  value={getDistrictColor(d)}
+                  onChange={(e) => handleColorChange('district', d.id, e.target.value)}
+                  style={{ width: 20, height: 20, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+                  title="Change district color"
+                />
+                <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => { setSelDistrict(d.id); setSelRegion(d.region_id); zoomToFeature('district', d.id); }}>
+                  <div style={{ fontWeight: 600, fontSize: 11, color: '#333' }}>📍 {d.name} <span style={{ fontSize: 10, color: '#666' }}>{d.code}</span></div>
+                  {d.region_name && <div style={{ fontSize: 10, color: '#999' }}>{d.region_name}</div>}
                 </div>
-                {districts.filter(d => d.region_id === r.id).map((d) => (
-                  <div key={d.id} style={{ borderTop: '1px solid #f0f0f5' }}>
-                    <div
-                      style={{ padding: '5px 8px 5px 18px', fontWeight: 600, fontSize: 11, color: '#333', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-                      onClick={() => { setSelDistrict(d.id); setSelRegion(r.id); zoomToFeature('district', d.id); }}
-                    >
-                      <span>📍 {d.name}</span>
-                      <span style={{ fontSize: 10, color: '#666' }}>{d.code}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ))}
-            {districts.filter(d => !regions.find(r => r.id === d.region_id)).map((d) => (
-              <div key={d.id} style={{ marginBottom: 8, borderRadius: 8, border: '1px solid #e8e8f0', padding: '6px 8px' }}>
-                <div style={{ fontWeight: 600, fontSize: 12, color: '#333', cursor: 'pointer' }} onClick={() => { setSelDistrict(d.id); zoomToFeature('district', d.id); }}>📍 {d.name} <span style={{ fontSize: 10, color: '#666' }}>{d.code}</span></div>
               </div>
             ))}
           </DraggablePanel>
@@ -1695,7 +1691,14 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                       style={{ padding: '4px 8px 4px 18px', fontSize: 11, color: '#555', cursor: 'pointer', borderTop: '1px solid #f0f0f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: selectedZone?.id === z.id ? '#e8e8f0' : 'transparent' }}
                       onClick={() => { setSelectedZone(z); zoomToFeature('zone', z.id); }}
                     >
-                      <span>📮 {z.postal_code} {z.name}</span>
+                      <input
+                        type="color"
+                        value={getZoneColor(z)}
+                        onChange={(e) => { e.stopPropagation(); handleColorChange('zone', z.id, e.target.value); }}
+                        style={{ width: 18, height: 18, padding: 0, border: 'none', background: 'none', cursor: 'pointer', marginRight: 4 }}
+                        title="Change zone color"
+                      />
+                      <span style={{ flex: 1 }}>📮 {z.postal_code} {z.name}</span>
                       {z.locked && <span style={{ fontSize: 9 }}>🔒</span>}
                     </div>
                   ))}
@@ -1708,6 +1711,13 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                 style={{ padding: '4px 8px', fontSize: 11, color: '#555', cursor: 'pointer', borderRadius: 4, marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: selectedZone?.id === z.id ? '#e8e8f0' : 'transparent' }}
                 onClick={() => { setSelectedZone(z); zoomToFeature('zone', z.id); }}
               >
+                <input
+                  type="color"
+                  value={getZoneColor(z)}
+                  onChange={(e) => { e.stopPropagation(); handleColorChange('zone', z.id, e.target.value); }}
+                  style={{ width: 18, height: 18, padding: 0, border: 'none', background: 'none', cursor: 'pointer', marginRight: 4 }}
+                  title="Change zone color"
+                />
                 <span>📮 {z.postal_code} {z.name}</span>
                 {z.locked && <span style={{ fontSize: 9 }}>🔒</span>}
               </div>

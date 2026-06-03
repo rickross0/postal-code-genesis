@@ -390,6 +390,67 @@ async def auto_create_all_zones(
     if not country:
         raise HTTPException(404, "Country not found")
 
+    # Save snapshot before any changes (for undo)
+    from app.models.database import DrawingSnapshot
+    import json
+    snap_reg_res = await db.execute(text("""
+        SELECT id, name, code, locked,
+               ST_AsGeoJSON(boundary) AS boundary_geojson,
+               ST_AsGeoJSON(center_point) AS center_geojson
+        FROM regions WHERE country_id = :cid
+    """), {"cid": country_id})
+    snap_regions = []
+    for r in snap_reg_res.mappings().all():
+        snap_regions.append({
+            "id": r["id"], "name": r["name"], "code": r["code"], "locked": bool(r["locked"]),
+            "boundary_geojson": json.loads(r["boundary_geojson"]) if r["boundary_geojson"] else None,
+            "center_geojson": json.loads(r["center_geojson"]) if r["center_geojson"] else None,
+        })
+
+    snap_dist_res = await db.execute(text("""
+        SELECT d.id, d.name, d.code, d.region_id, d.locked,
+               ST_AsGeoJSON(d.boundary) AS boundary_geojson,
+               ST_AsGeoJSON(d.center_point) AS center_geojson
+        FROM districts d
+        JOIN regions r ON d.region_id = r.id
+        WHERE r.country_id = :cid
+    """), {"cid": country_id})
+    snap_districts = []
+    for d in snap_dist_res.mappings().all():
+        snap_districts.append({
+            "id": d["id"], "name": d["name"], "code": d["code"],
+            "region_id": d["region_id"], "locked": bool(d["locked"]),
+            "boundary_geojson": json.loads(d["boundary_geojson"]) if d["boundary_geojson"] else None,
+            "center_geojson": json.loads(d["center_geojson"]) if d["center_geojson"] else None,
+        })
+
+    snap_zone_res = await db.execute(text("""
+        SELECT pz.id, pz.postal_code, pz.name, pz.status, pz.population, pz.area_sq_km, pz.color, pz.locked,
+               d.id AS district_id,
+               ST_AsGeoJSON(pz.boundary) AS boundary_geojson,
+               ST_AsGeoJSON(pz.center_point) AS center_geojson
+        FROM postal_zones pz
+        JOIN districts d ON pz.district_id = d.id
+        JOIN regions r ON d.region_id = r.id
+        WHERE r.country_id = :cid
+    """), {"cid": country_id})
+    snap_zones = []
+    for z in snap_zone_res.mappings().all():
+        snap_zones.append({
+            "id": z["id"], "postal_code": z["postal_code"], "name": z["name"],
+            "status": z["status"], "population": z["population"], "area_sq_km": z["area_sq_km"],
+            "color": z["color"], "locked": bool(z["locked"]), "district_id": z["district_id"],
+            "boundary_geojson": json.loads(z["boundary_geojson"]) if z["boundary_geojson"] else None,
+            "center_geojson": json.loads(z["center_geojson"]) if z["center_geojson"] else None,
+        })
+
+    snap_payload = json.dumps({"regions": snap_regions, "districts": snap_districts, "zones": snap_zones})
+    snap_record = DrawingSnapshot(country_id=country_id, snapshot=snap_payload)
+    db.add(snap_record)
+    await db.flush()
+    await db.refresh(snap_record)
+    snapshot_id = snap_record.id
+
     # Get all regions and districts
     region_res = await db.execute(select(Region).where(Region.country_id == country_id))
     regions = region_res.scalars().all()

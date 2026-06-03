@@ -210,6 +210,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [zonesPanelMinimized, setZonesPanelMinimized] = useState(false);
   const [autoFillRegionId, setAutoFillRegionId] = useState('');
   const [autoFillCount, setAutoFillCount] = useState('');
+  const [undoableZones, setUndoableZones] = useState(null); // snapshot_id for global zone auto-fill
   const [nameModalType, setNameModalType] = useState(null); // 'region', 'district'
   const [nameModalTarget, setNameModalTarget] = useState(null); // regionId for district, or callback context
   const [customName, setCustomName] = useState('');
@@ -1133,10 +1134,18 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   }, [loadData]);
 
   const handleAutoGen = useCallback(async () => {
-    if (!window.confirm('Auto-generate zones for ALL districts? This replaces existing zones.')) return;
-    try { await autoCreateAllZones(selectedCountry.id, 5000); await loadData(); }
+    if (!window.confirm('Auto-generate zones for all districts that do not have zones yet. Existing zones and districts will be preserved.')) return;
+    try {
+      const res = await autoCreateAllZones(selectedCountry.id, 5000);
+      await loadData();
+      await loadSnapshots();
+      if (res.data?.snapshot_id) {
+        setUndoableZones(res.data.snapshot_id);
+      }
+      alert(res.data?.detail || `Created ${res.data?.created || 0} zones.`);
+    }
     catch (err) { alert('Failed: ' + (err.response?.data?.detail || err.message)); }
-  }, [selectedCountry, loadData]);
+  }, [selectedCountry, loadData, loadSnapshots]);
 
   const handleAutoRegions = useCallback(async () => {
     if (!window.confirm('Auto-generate regions for open areas? Existing regions will be preserved.')) return;
@@ -1169,6 +1178,18 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     }
     catch (err) { alert('Undo failed: ' + (err.response?.data?.detail || err.message)); }
   }, [selectedCountry, loadData, loadSnapshots, undoableDistricts]);
+
+  const handleUndoZones = useCallback(async () => {
+    if (!undoableZones) return;
+    if (!window.confirm('Undo auto-zones? This restores all zones to their previous state.')) return;
+    try {
+      await restoreSnapshot(selectedCountry.id, undoableZones);
+      setUndoableZones(null);
+      await loadData();
+      await loadSnapshots();
+    }
+    catch (err) { alert('Undo failed: ' + (err.response?.data?.detail || err.message)); }
+  }, [selectedCountry, loadData, loadSnapshots, undoableZones]);
 
   const handleSaveSnapshot = useCallback(async () => {
     try { await saveSnapshot(selectedCountry.id); await loadSnapshots(); alert('Snapshot saved!'); }
@@ -1239,7 +1260,10 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         <button style={styles.btn} onClick={() => startDraw('region', null)}>🗺 Region</button>
         <button style={styles.btnS} onClick={() => startDraw('district', null)}>📍 District</button>
         <button style={styles.btnG} onClick={() => startDraw('zone', null)}>✏️ Zone</button>
-        <button style={styles.btnG} onClick={handleAutoGen}>⚡ Auto-Fill</button>
+        <button style={styles.btnG} onClick={handleAutoGen}>⚡ Auto-Fill Zones</button>
+        {undoableZones && (
+          <button style={{ ...styles.btnD, background: '#c62828' }} onClick={handleUndoZones}>↩️ Undo Zones</button>
+        )}
         <button style={styles.btnO} onClick={handleAutoRegions}>🗺 Auto Regions</button>
         {undoableRegions && (
           <button style={{ ...styles.btnD, background: '#c62828' }} onClick={handleUndoRegions}>↩️ Undo Regions</button>

@@ -208,6 +208,8 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [showZonesPanel, setShowZonesPanel] = useState(false);
   const [districtsPanelMinimized, setDistrictsPanelMinimized] = useState(false);
   const [zonesPanelMinimized, setZonesPanelMinimized] = useState(false);
+  const [autoFillRegionId, setAutoFillRegionId] = useState('');
+  const [autoFillCount, setAutoFillCount] = useState('');
   const [nameModalType, setNameModalType] = useState(null); // 'region', 'district'
   const [nameModalTarget, setNameModalTarget] = useState(null); // regionId for district, or callback context
   const [customName, setCustomName] = useState('');
@@ -1640,6 +1642,83 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             minimized={districtsPanelMinimized}
             onClose={() => setShowDistrictsPanel(false)}
           >
+            {/* Auto-fill controls */}
+            <div style={{ marginBottom: 10, padding: '8px', background: '#f8f9ff', borderRadius: 8, border: '1px solid #e8e8f0' }}>
+              <div style={{ fontWeight: 600, fontSize: 11, color: '#1a1a2e', marginBottom: 6 }}>⚡ Auto-Fill Empty Areas</div>
+              <div style={{ marginBottom: 6 }}>
+                <label style={{ fontSize: 10, color: '#666', display: 'block', marginBottom: 2 }}>Region:</label>
+                <select
+                  style={{ width: '100%', padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid #ddd' }}
+                  value={autoFillRegionId || (selRegion || '')}
+                  onChange={(e) => setAutoFillRegionId(e.target.value)}
+                >
+                  <option value="">-- Select a region --</option>
+                  {regions.map((r) => (
+                    <option key={r.id} value={r.id}>🗺️ {r.name} ({r.code})</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: 10, color: '#666', display: 'block', marginBottom: 2 }}># of districts:</label>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="e.g. 5"
+                    value={autoFillCount}
+                    onChange={(e) => setAutoFillCount(e.target.value)}
+                    style={{ width: '100%', padding: '4px 6px', fontSize: 11, borderRadius: 4, border: '1px solid #ddd', boxSizing: 'border-box' }}
+                  />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <button
+                    style={{ padding: '5px 10px', background: '#6c63ff', color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                    onClick={async () => {
+                      const regionId = parseInt(autoFillRegionId || selRegion, 10);
+                      if (!regionId || isNaN(regionId)) {
+                        alert('Please select a region first.');
+                        return;
+                      }
+                      const count = autoFillCount ? parseInt(autoFillCount, 10) : null;
+                      if (autoFillCount && (isNaN(count) || count < 1)) {
+                        alert('Please enter a valid number of districts (1 or more).');
+                        return;
+                      }
+                      try {
+                        const res = await autoCreateDistricts(regionId, count);
+                        await loadData();
+                        await loadSnapshots();
+                        if (res.data?.snapshot_id) {
+                          setUndoableDistricts(prev => ({ ...prev, [regionId]: res.data.snapshot_id }));
+                        }
+                        alert(res.data?.detail || `Created ${res.data?.created || 0} districts.`);
+                      } catch (err) {
+                        alert('Failed: ' + (err.response?.data?.detail || err.message));
+                      }
+                    }}
+                  >
+                    Fill
+                  </button>
+                </div>
+              </div>
+              {Object.keys(undoableDistricts).length > 0 && (
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {Object.entries(undoableDistricts).map(([rid, sid]) => {
+                    const r = regions.find(x => x.id === parseInt(rid, 10));
+                    return (
+                      <button
+                        key={rid}
+                        style={{ padding: '3px 8px', background: '#c62828', color: '#fff', border: 'none', borderRadius: 6, fontSize: 10, cursor: 'pointer' }}
+                        onClick={() => handleUndoDistricts(parseInt(rid, 10))}
+                        title="Undo auto-fill for this region"
+                      >
+                        ↩️ Undo {r ? r.name : 'Region'}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
             {districts.length === 0 && (
               <div style={{ fontSize: 11, color: '#999', padding: '8px 0' }}>No districts yet. Use Auto-Fill to generate them.</div>
             )}

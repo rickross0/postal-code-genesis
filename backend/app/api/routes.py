@@ -1096,11 +1096,13 @@ async def auto_create_districts(
     cap_lat = country.capital_lat or 4.85
     cap_lng = country.capital_lng or 31.6
     if num_districts is not None and num_districts > 0:
-        districts_per_region = num_districts
+        # User explicitly wants to create exactly this many NEW districts in open areas
+        num_new = num_districts
     else:
         num_regions = max(country.num_regions, 1)
         num_districts_total = max(country.num_districts, 1)
         districts_per_region = max(num_districts_total // num_regions, 1)
+        num_new = districts_per_region - existing_count
 
     # Derive region boundary or center
     region_boundary = None
@@ -1164,8 +1166,7 @@ async def auto_create_districts(
         if not uncovered_polys:
             return {"detail": "No open areas to fill", "created": 0, "districts": [], "snapshot_id": snapshot_id}
 
-    # Determine how many new districts to create
-    num_new = districts_per_region - existing_count
+    # Validate we have work to do
     if num_new <= 0:
         return {"detail": "Region already has enough districts", "created": 0, "districts": [], "snapshot_id": snapshot_id}
 

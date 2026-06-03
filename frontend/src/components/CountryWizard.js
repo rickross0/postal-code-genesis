@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { createCountry, analyzeCountry, autoCreateZones, lookupCountry, lookupCity } from '../services/api';
 
 const styles = {
@@ -59,18 +59,75 @@ export default function CountryWizard({ onCountryCreated }) {
     urban_percentage: '0', literacy_rate: '0', mobile_penetration: '0', internet_penetration: '0',
     capital_city: '', capital_lat: '', capital_lng: '',
   });
+  const [lookupStatus, setLookupStatus] = useState('idle'); // idle | loading | success | error
+  const autoLookupRef = useRef(false);
+  const lookupTimerRef = useRef(null);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
     setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    // Debounced auto-lookup when user types in country name
+    if (name === 'name') {
+      if (lookupTimerRef.current) clearTimeout(lookupTimerRef.current);
+      if (value.trim().length >= 3 && !autoLookupRef.current) {
+        lookupTimerRef.current = setTimeout(() => {
+          handleLookupAuto(value.trim());
+        }, 1200);
+      }
+    }
   };
+
+  const handleLookupAuto = useCallback(async (countryName) => {
+    if (!countryName || autoLookupRef.current) return;
+    setLookupStatus('loading');
+    try {
+      const res = await lookupCountry(countryName);
+      const data = res.data;
+      if (data.population) {
+        autoLookupRef.current = true;
+        setForm((prev) => ({
+          ...prev,
+          iso_code: data.iso_code || prev.iso_code,
+          estimated_population: String(data.population || prev.estimated_population),
+          area_sq_km: data.area_sq_km ? String(Math.round(data.area_sq_km)) : prev.area_sq_km,
+          capital_city: data.capital_city || prev.capital_city,
+          capital_lat: data.capital_lat != null ? String(data.capital_lat) : prev.capital_lat,
+          capital_lng: data.capital_lng != null ? String(data.capital_lng) : prev.capital_lng,
+          languages: data.languages?.join(', ') || prev.languages,
+          num_regions: data.num_regions ? String(data.num_regions) : (prev.num_regions || '10'),
+          num_districts: data.num_districts ? String(data.num_districts) : (prev.num_districts || '10'),
+        }));
+        // Refine capital coordinates via city lookup
+        if (data.capital_city) {
+          try {
+            const cityRes = await lookupCity(data.capital_city, data.iso_code_2);
+            const c = cityRes.data;
+            if (c.lat != null && c.lng != null) {
+              setForm((prev) => ({
+                ...prev,
+                capital_lat: String(c.lat),
+                capital_lng: String(c.lng),
+              }));
+            }
+          } catch (_) { /* ignore */ }
+        }
+        setLookupStatus('success');
+      } else {
+        setLookupStatus('error');
+      }
+    } catch (err) {
+      setLookupStatus('error');
+    }
+  }, []);
 
   const handleLookup = async () => {
     if (!form.name.trim()) {
       alert("Enter a country name first");
       return;
     }
+    autoLookupRef.current = true;
     setLoading(true);
+    setLookupStatus('loading');
     try {
       const res = await lookupCountry(form.name);
       const data = res.data;
@@ -87,6 +144,7 @@ export default function CountryWizard({ onCountryCreated }) {
           num_regions: data.num_regions ? String(data.num_regions) : (prev.num_regions || '10'),
           num_districts: data.num_districts ? String(data.num_districts) : (prev.num_districts || '10'),
         }));
+        setLookupStatus('success');
         // If capital city exists, try to refine its coordinates
         if (data.capital_city) {
           try {
@@ -207,11 +265,17 @@ export default function CountryWizard({ onCountryCreated }) {
             <div style={styles.formGroup}>
               <label style={styles.label}>Country Name</label>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <input style={{ ...styles.input, flex: 1 }} name="name" value={form.name} onChange={handleChange} placeholder="e.g. South Sudan" />
-                <button style={{ ...styles.btnSecondary, whiteSpace: 'nowrap' }} onClick={handleLookup} disabled={loading}>
+                <input style={{ ...styles.input, flex: 1 }} name="name" value={form.name} onChange={handleChange} onBlur={() => { if (form.name.trim().length >= 3 && !autoLookupRef.current) { handleLookupAuto(form.name.trim()); } }} placeholder="e.g. South Sudan" />
+                <button style={{ ...styles.buttonSecondary, whiteSpace: 'nowrap' }} onClick={handleLookup} disabled={loading}>
                   {loading ? 'Looking up…' : '🔍 Look Up'}
                 </button>
               </div>
+              {lookupStatus === 'success' && (
+                <div style={{ fontSize: '12px', color: '#51cf66', marginTop: '4px' }}>✅ Auto-filled from online data</div>
+              )}
+              {lookupStatus === 'error' && (
+                <div style={{ fontSize: '12px', color: '#ff6b6b', marginTop: '4px' }}>⚠️ Could not find online data</div>
+              )}
             </div>
           </div>
           <div style={styles.half}>

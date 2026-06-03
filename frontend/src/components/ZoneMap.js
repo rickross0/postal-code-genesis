@@ -39,7 +39,7 @@ const styles = {
   empty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: 16, textAlign: 'center', padding: 40 },
 };
 
-function DraggablePanel({ children, defaultPosition, title, style = {}, minimized = false }) {
+function DraggablePanel({ children, defaultPosition, title, style = {}, minimized = false, onClose }) {
   const [pos, setPos] = useState(defaultPosition);
   const [isMinimized, setIsMinimized] = useState(minimized);
   const dragRef = useRef(null);
@@ -116,13 +116,24 @@ function DraggablePanel({ children, defaultPosition, title, style = {}, minimize
             <span style={{ marginRight: 6, fontSize: 10, color: '#999' }}>⋮⋮</span>
             {title}
           </div>
-          <button
-            style={{ background: 'none', border: 'none', fontSize: 14, cursor: 'pointer', color: '#999', padding: '0 4px', lineHeight: 1 }}
-            onClick={(e) => { e.stopPropagation(); setIsMinimized(v => !v); }}
-            title={isMinimized ? 'Expand' : 'Minimize'}
-          >
-            {isMinimized ? '▲' : '▼'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            {onClose && (
+              <button
+                style={{ background: 'none', border: 'none', fontSize: 14, cursor: 'pointer', color: '#999', padding: '0 4px', lineHeight: 1 }}
+                onClick={(e) => { e.stopPropagation(); onClose(); }}
+                title="Close"
+              >
+                ✕
+              </button>
+            )}
+            <button
+              style={{ background: 'none', border: 'none', fontSize: 14, cursor: 'pointer', color: '#999', padding: '0 4px', lineHeight: 1 }}
+              onClick={(e) => { e.stopPropagation(); setIsMinimized(v => !v); }}
+              title={isMinimized ? 'Expand' : 'Minimize'}
+            >
+              {isMinimized ? '▲' : '▼'}
+            </button>
+          </div>
         </div>
       )}
       {!isMinimized && children}
@@ -187,7 +198,9 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [undoableDistricts, setUndoableDistricts] = useState({}); // { regionId: snapshotId }
   const [nameModalOpen, setNameModalOpen] = useState(false);
   const [showDistrictsPanel, setShowDistrictsPanel] = useState(false);
+  const [showZonesPanel, setShowZonesPanel] = useState(false);
   const [districtsPanelMinimized, setDistrictsPanelMinimized] = useState(false);
+  const [zonesPanelMinimized, setZonesPanelMinimized] = useState(false);
   const [nameModalType, setNameModalType] = useState(null); // 'region', 'district'
   const [nameModalTarget, setNameModalTarget] = useState(null); // regionId for district, or callback context
   const [customName, setCustomName] = useState('');
@@ -1233,7 +1246,10 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           {snapshotsVisible ? '👁️‍🗨️ Hide Snapshots' : '📸 Show Snapshots'}
         </button>
         <button style={{ ...styles.btnS, border: showDistrictsPanel ? '1px solid #6c63ff' : '1px solid #999', color: showDistrictsPanel ? '#6c63ff' : '#666' }} onClick={() => setShowDistrictsPanel(v => !v)}>
-          {showDistrictsPanel ? '📋 Hide Districts & Zones' : '📋 Show Districts & Zones'}
+          {showDistrictsPanel ? '📋 Hide Districts' : '📋 Show Districts'}
+        </button>
+        <button style={{ ...styles.btnS, border: showZonesPanel ? '1px solid #6c63ff' : '1px solid #999', color: showZonesPanel ? '#6c63ff' : '#666' }} onClick={() => setShowZonesPanel(v => !v)}>
+          {showZonesPanel ? '📋 Hide Zones' : '📋 Show Zones'}
         </button>
         <button style={{ ...styles.btnS, border: '1px solid #6c63ff', color: '#6c63ff' }} onClick={handleScreenshot} disabled={generatingReport}>📸 Screenshot</button>
         <button style={{ ...styles.btnS, border: '1px solid #1a1a2e', color: '#1a1a2e', fontWeight: 700 }} onClick={handleGenerateProposalPDF} disabled={generatingReport}>📋 Product Proposal</button>
@@ -1607,20 +1623,17 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           </div>
         )}
 
-        {/* Districts & Zones Floating Panel */}
+        {/* Districts Floating Panel */}
         {showDistrictsPanel && !drawing && (
           <DraggablePanel
             defaultPosition={{ top: 80, left: window.innerWidth - 320 }}
-            title="Districts & Zones"
-            style={{ background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', width: 280, zIndex: 1000, fontSize: 12, maxHeight: '70vh', overflowY: 'auto' }}
+            title="Districts"
+            style={{ background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', width: 260, zIndex: 1000, fontSize: 12, maxHeight: '70vh', overflowY: 'auto' }}
             minimized={districtsPanelMinimized}
+            onClose={() => setShowDistrictsPanel(false)}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: '#1a1a2e' }}>📋 Districts & Zones ({zones.length})</div>
-              <button style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: '#999', lineHeight: 1, padding: 0 }} onClick={() => setShowDistrictsPanel(false)} title="Close panel">✕</button>
-            </div>
-            {regions.length === 0 && districts.length === 0 && zones.length === 0 && (
-              <div style={{ fontSize: 11, color: '#999', padding: '8px 0' }}>No regions, districts or zones yet. Use Auto-Fill to generate them.</div>
+            {regions.length === 0 && districts.length === 0 && (
+              <div style={{ fontSize: 11, color: '#999', padding: '8px 0' }}>No regions or districts yet. Use Auto-Fill to generate them.</div>
             )}
             {regions.map((r) => (
               <div key={r.id} style={{ marginBottom: 10, borderRadius: 8, border: '1px solid #e8e8f0', overflow: 'hidden' }}>
@@ -1640,33 +1653,63 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                       <span>📍 {d.name}</span>
                       <span style={{ fontSize: 10, color: '#666' }}>{d.code}</span>
                     </div>
-                    <div style={{ padding: '0 8px 4px 26px' }}>
-                      {zones.filter(z => z.district_id === d.id).map((z) => (
-                        <div
-                          key={z.id}
-                          style={{ padding: '3px 6px', fontSize: 11, color: '#555', cursor: 'pointer', borderRadius: 4, marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: selectedZone?.id === z.id ? '#e8e8f0' : 'transparent' }}
-                          onClick={() => { setSelectedZone(z); zoomToFeature('zone', z.id); }}
-                        >
-                          <span>📮 {z.postal_code} {z.name}</span>
-                          {z.locked && <span style={{ fontSize: 9 }}>🔒</span>}
-                        </div>
-                      ))}
-                      {zones.filter(z => z.district_id === d.id).length === 0 && (
-                        <div style={{ fontSize: 10, color: '#bbb', padding: '2px 6px' }}>No zones</div>
-                      )}
-                    </div>
                   </div>
                 ))}
               </div>
             ))}
             {districts.filter(d => !regions.find(r => r.id === d.region_id)).map((d) => (
               <div key={d.id} style={{ marginBottom: 8, borderRadius: 8, border: '1px solid #e8e8f0', padding: '6px 8px' }}>
-                <div style={{ fontWeight: 600, fontSize: 12, color: '#333', cursor: 'pointer', marginBottom: 4 }} onClick={() => { setSelDistrict(d.id); zoomToFeature('district', d.id); }}>📍 {d.name} <span style={{ fontSize: 10, color: '#666' }}>{d.code}</span></div>
-                <div style={{ paddingLeft: 10 }}>
-                  {zones.filter(z => z.district_id === d.id).map((z) => (
-                    <div key={z.id} style={{ padding: '2px 4px', fontSize: 11, color: '#555', cursor: 'pointer' }} onClick={() => { setSelectedZone(z); zoomToFeature('zone', z.id); }}>📮 {z.postal_code} {z.name}</div>
+                <div style={{ fontWeight: 600, fontSize: 12, color: '#333', cursor: 'pointer' }} onClick={() => { setSelDistrict(d.id); zoomToFeature('district', d.id); }}>📍 {d.name} <span style={{ fontSize: 10, color: '#666' }}>{d.code}</span></div>
+              </div>
+            ))}
+          </DraggablePanel>
+        )}
+
+        {/* Zones Floating Panel */}
+        {showZonesPanel && !drawing && (
+          <DraggablePanel
+            defaultPosition={{ top: 80, left: window.innerWidth - 320 - 280 }}
+            title="Zones"
+            style={{ background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', width: 260, zIndex: 1000, fontSize: 12, maxHeight: '70vh', overflowY: 'auto' }}
+            minimized={zonesPanelMinimized}
+            onClose={() => setShowZonesPanel(false)}
+          >
+            {zones.length === 0 && (
+              <div style={{ fontSize: 11, color: '#999', padding: '8px 0' }}>No zones yet. Use Auto-Fill to generate them.</div>
+            )}
+            {districts.map((d) => {
+              const dz = zones.filter(z => z.district_id === d.id);
+              if (dz.length === 0) return null;
+              return (
+                <div key={d.id} style={{ marginBottom: 10, borderRadius: 8, border: '1px solid #e8e8f0', overflow: 'hidden' }}>
+                  <div
+                    style={{ padding: '6px 8px', background: '#f8f9ff', fontWeight: 600, fontSize: 12, color: '#1a1a2e', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                    onClick={() => { setSelDistrict(d.id); zoomToFeature('district', d.id); }}
+                  >
+                    <span>📍 {d.name}</span>
+                    <span style={{ fontSize: 10, color: '#666' }}>{d.code}</span>
+                  </div>
+                  {dz.map((z) => (
+                    <div
+                      key={z.id}
+                      style={{ padding: '4px 8px 4px 18px', fontSize: 11, color: '#555', cursor: 'pointer', borderTop: '1px solid #f0f0f5', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: selectedZone?.id === z.id ? '#e8e8f0' : 'transparent' }}
+                      onClick={() => { setSelectedZone(z); zoomToFeature('zone', z.id); }}
+                    >
+                      <span>📮 {z.postal_code} {z.name}</span>
+                      {z.locked && <span style={{ fontSize: 9 }}>🔒</span>}
+                    </div>
                   ))}
                 </div>
+              );
+            })}
+            {zones.filter(z => !z.district_id).map((z) => (
+              <div
+                key={z.id}
+                style={{ padding: '4px 8px', fontSize: 11, color: '#555', cursor: 'pointer', borderRadius: 4, marginBottom: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: selectedZone?.id === z.id ? '#e8e8f0' : 'transparent' }}
+                onClick={() => { setSelectedZone(z); zoomToFeature('zone', z.id); }}
+              >
+                <span>📮 {z.postal_code} {z.name}</span>
+                {z.locked && <span style={{ fontSize: 9 }}>🔒</span>}
               </div>
             ))}
           </DraggablePanel>

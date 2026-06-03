@@ -1122,11 +1122,22 @@ async def auto_create_districts(
                         existing_polys.append(dg)
                 except Exception:
                     pass
+            elif dist.center_point is not None:
+                # Fallback: use center point as small exclusion circle
+                try:
+                    cp = to_shape(dist.center_point)
+                    if cp and not cp.is_empty:
+                        # ~500m radius buffer in degrees (approx)
+                        existing_polys.append(cp.buffer(0.0045))
+                except Exception:
+                    pass
         if existing_polys:
             try:
                 covered = unary_union(existing_polys)
                 if not covered.is_valid:
                     covered = covered.buffer(0)
+                # Slight negative buffer on covered to avoid precision overlaps
+                covered = covered.buffer(-1e-7)
                 uncovered = region_boundary.difference(covered)
             except Exception:
                 uncovered = region_boundary
@@ -1154,77 +1165,77 @@ async def auto_create_districts(
             return {"detail": "No open areas to fill", "created": 0, "districts": [], "snapshot_id": snapshot_id}
 
     # Determine how many new districts to create
-    num_new = max(1, districts_per_region - existing_count)
+    num_new = districts_per_region - existing_count
+    if num_new <= 0:
+        return {"detail": "Region already has enough districts", "created": 0, "districts": [], "snapshot_id": snapshot_id}
 
-    # Combine uncovered polygons into one area for grid subdivision
-    try:
-        union_uncovered = unary_union(uncovered_polys)
-    except Exception:
-        union_uncovered = uncovered_polys[0] if uncovered_polys else None
-
-    if union_uncovered is None or union_uncovered.is_empty:
+    # Distribute num_new across uncovered polygons proportionally by area
+    total_uncovered_area = sum(p.area for p in uncovered_polys)
+    if total_uncovered_area <= 0:
         return {"detail": "No open areas to fill", "created": 0, "districts": [], "snapshot_id": snapshot_id}
 
-    all_bounds = [p.bounds for p in uncovered_polys]
-    minx = min(b[0] for b in all_bounds)
-    miny = min(b[1] for b in all_bounds)
-    maxx = max(b[2] for b in all_bounds)
-    maxy = max(b[3] for b in all_bounds)
-
-    cols = max(1, int(math.sqrt(num_new)))
-    rows = max(1, int(math.ceil(num_new / cols)))
-    dx = (maxx - minx) / cols if cols > 0 else (maxx - minx)
-    dy = (maxy - miny) / rows if rows > 0 else (maxy - miny)
-
     created = []
-    cell_index = 0
-    for ri in range(rows):
-        for ci in range(cols):
-            if cell_index >= num_new:
-                break
-            dist_box = box(minx + ci * dx, miny + ri * dy, minx + (ci + 1) * dx, miny + (ri + 1) * dy)
+    district_index = 0
 
-            # Intersect with uncovered
-            pieces = []
-            for poly in uncovered_polys:
+    for poly in uncovered_polys:
+        poly_area = poly.area
+        if poly_area < 1e-8:
+            continue
+        # Allocate districts proportional to this polygon's share of uncovered area
+        poly_share = poly_area / total_uncovered_area
+        poly_count = max(1, int(round(num_new * poly_share))) if len(uncovered_polys) > 1 else num_new
+        # Don't create more than remaining needed
+        remaining_needed = num_new - len(created)
+        if remaining_needed <= 0:
+            break
+        poly_count = min(poly_count, remaining_needed)
+
+        # Subdivide this polygon individually
+        bounds = poly.bounds
+        px_min, py_min, px_max, py_max = bounds
+        pcols = max(1, int(math.sqrt(poly_count)))
+        prows = max(1, int(math.ceil(poly_count / pcols)))
+        pdx = (px_max - px_min) / pcols if pcols > 0 else (px_max - px_min)
+        pdy = (py_max - py_min) / prows if prows > 0 else (py_max - py_min)
+
+        for pri in range(prows):
+            for pci in range(pcols):
+                if len(created) >= num_new:
+                    break
+                dist_box = box(px_min + pci * pdx, py_min + pri * pdy, px_min + (pci + 1) * pdx, py_min + (pri + 1) * pdy)
                 try:
                     inter = dist_box.intersection(poly)
-                    if not inter.is_empty and inter.area >= 1e-8:
-                        pieces.append(inter)
                 except Exception:
-                    pass
+                    continue
+                if inter.is_empty or inter.area < 1e-8:
+                    continue
+                if inter.geom_type in ("Polygon", "MultiPolygon"):
+                    dist_poly = inter
+                else:
+                    try:
+                        dist_poly = unary_union([g for g in inter.geoms if g.geom_type in ("Polygon", "MultiPolygon") and g.area >= 1e-8])
+                    except Exception:
+                        continue
+                if dist_poly.is_empty or dist_poly.area < 1e-8:
+                    continue
 
-            if not pieces:
-                continue
+                district_index += 1
+                dcode = f"{region.code}{existing_count + district_index:02d}"
 
-            if len(pieces) == 1:
-                dist_poly = pieces[0]
-            else:
-                try:
-                    dist_poly = unary_union(pieces)
-                except Exception:
-                    dist_poly = pieces[0]
+                center_point = from_shape(dist_poly.centroid, srid=4326)
+                district = District(
+                    region_id=region_id,
+                    name=f"District {dcode}",
+                    code=dcode,
+                    center_point=center_point,
+                )
+                if dist_poly.geom_type in ("Polygon", "MultiPolygon"):
+                    district.boundary = from_shape(dist_poly, srid=4326)
 
-            if dist_poly.is_empty or dist_poly.area < 1e-8:
-                continue
-
-            cell_index += 1
-            dcode = f"{region.code}{existing_count + cell_index:02d}"
-
-            center_point = from_shape(dist_poly.centroid, srid=4326)
-            district = District(
-                region_id=region_id,
-                name=f"District {dcode}",
-                code=dcode,
-                center_point=center_point,
-            )
-            if dist_poly.geom_type in ("Polygon", "MultiPolygon"):
-                district.boundary = from_shape(dist_poly, srid=4326)
-
-            db.add(district)
-            await db.flush()
-            await db.refresh(district)
-            created.append({"id": district.id, "name": district.name, "code": district.code, "locked": False})
+                db.add(district)
+                await db.flush()
+                await db.refresh(district)
+                created.append({"id": district.id, "name": district.name, "code": district.code, "locked": False})
 
     return {"detail": f"Created {len(created)} districts in open areas", "created": len(created), "districts": created, "snapshot_id": snapshot_id}
 

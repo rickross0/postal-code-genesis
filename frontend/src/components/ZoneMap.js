@@ -39,6 +39,84 @@ const styles = {
   empty: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#999', fontSize: 16, textAlign: 'center', padding: 40 },
 };
 
+function DraggablePanel({ children, defaultPosition, title, style = {} }) {
+  const [pos, setPos] = useState(defaultPosition);
+  const dragRef = useRef(null);
+  const startPos = useRef({ x: 0, y: 0, initTop: 0, initLeft: 0 });
+  const dragging = useRef(false);
+
+  const onPointerDown = useCallback((e) => {
+    dragging.current = true;
+    startPos.current = {
+      x: e.clientX || e.touches?.[0]?.clientX || 0,
+      y: e.clientY || e.touches?.[0]?.clientY || 0,
+      initTop: pos.top ?? 0,
+      initLeft: pos.left ?? 0,
+    };
+    if (e.target.setCapture) e.target.setCapture();
+  }, [pos]);
+
+  const onPointerMove = useCallback((e) => {
+    if (!dragging.current) return;
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    const clientY = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
+    const dx = clientX - startPos.current.x;
+    const dy = clientY - startPos.current.y;
+    setPos({ top: startPos.current.initTop + dy, left: startPos.current.initLeft + dx });
+  }, []);
+
+  const onPointerUp = useCallback(() => {
+    dragging.current = false;
+  }, []);
+
+  useEffect(() => {
+    const el = dragRef.current;
+    if (!el) return;
+    el.addEventListener('mousedown', onPointerDown);
+    el.addEventListener('touchstart', onPointerDown, { passive: false });
+    window.addEventListener('mousemove', onPointerMove);
+    window.addEventListener('touchmove', onPointerMove, { passive: false });
+    window.addEventListener('mouseup', onPointerUp);
+    window.addEventListener('touchend', onPointerUp);
+    return () => {
+      el.removeEventListener('mousedown', onPointerDown);
+      el.removeEventListener('touchstart', onPointerDown);
+      window.removeEventListener('mousemove', onPointerMove);
+      window.removeEventListener('touchmove', onPointerMove);
+      window.removeEventListener('mouseup', onPointerUp);
+      window.removeEventListener('touchend', onPointerUp);
+    };
+  }, [onPointerDown, onPointerMove, onPointerUp]);
+
+  return (
+    <div style={{ position: 'absolute', top: pos.top, left: pos.left, zIndex: style.zIndex || 1000, ...style }}>
+      {title && (
+        <div
+          ref={dragRef}
+          style={{
+            cursor: 'grab',
+            padding: '6px 10px',
+            margin: '-12px -12px 8px -12px',
+            borderBottom: '1px solid #e8e8f0',
+            fontWeight: 600,
+            fontSize: 13,
+            color: '#1a1a2e',
+            display: 'flex',
+            alignItems: 'center',
+            userSelect: 'none',
+            borderRadius: '10px 10px 0 0',
+          }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <span style={{ marginRight: 6, fontSize: 10, color: '#999' }}>⋮⋮</span>
+          {title}
+        </div>
+      )}
+      {children}
+    </div>
+  );
+}
+
 function FitBounds({ zones, cid }) {
   const map = useMap();
   const last = useRef(null);
@@ -1255,8 +1333,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         )}
 
         {zones.length > 0 && !drawing && (
-          <div style={styles.legend}>
-            <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, color: '#1a1a2e' }}>Zones</div>
+          <DraggablePanel defaultPosition={{ top: 20, left: 20 }} title="Zones" style={styles.legend}>
             <div style={{ maxHeight: '40vh', overflowY: 'auto' }}>
               {zones.filter(z => !isHidden(hiddenMap, 'z', z.id)).slice(0, 50).map((z) => {
                 const color = getZoneColor(z);
@@ -1274,11 +1351,11 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                 </div>
               )}
             </div>
-          </div>
+          </DraggablePanel>
         )}
 
         {selectedZone && !drawing && (
-          <div style={styles.info}>
+          <DraggablePanel defaultPosition={{ top: window.innerHeight - 220, left: window.innerWidth - 360 }} title="Zone" style={styles.info}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
                 <div style={{ fontSize: 22, fontWeight: 700, color: getZoneColor(selectedZone) }}>
@@ -1331,11 +1408,11 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
               </button>
               <button style={styles.btnD} onClick={() => handleDelete('zone', selectedZone.id)}>🗑 Delete</button>
             </div>
-          </div>
+          </DraggablePanel>
         )}
 
         {selDistrict && !drawing && districts.find(d => d.id === selDistrict) && (
-          <div style={{ position: 'absolute', bottom: 20, left: 20, background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }}>
+          <DraggablePanel defaultPosition={{ top: window.innerHeight - 200, left: 20 }} title="District" style={{ background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               {editingName?.type === 'district' && editingName?.id === selDistrict ? (
                 <input
@@ -1370,11 +1447,11 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
               </button>
               <button style={styles.btnD} onClick={() => handleDelete('district', selDistrict)}>🗑</button>
             </div>
-          </div>
+          </DraggablePanel>
         )}
 
         {selRegion && !drawing && regions.find(r => r.id === selRegion) && (
-          <div style={{ position: 'absolute', bottom: 80, left: 20, background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }}>
+          <DraggablePanel defaultPosition={{ top: window.innerHeight - 280, left: 20 }} title="Region" style={{ background: '#fff', borderRadius: 12, padding: 14, boxShadow: '0 4px 20px rgba(0,0,0,.15)', maxWidth: 260, zIndex: 1000, fontSize: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               {editingName?.type === 'region' && editingName?.id === selRegion ? (
                 <input
@@ -1416,11 +1493,11 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
               </button>
               <button style={styles.btnD} onClick={() => handleDelete('region', selRegion)}>🗑</button>
             </div>
-          </div>
+          </DraggablePanel>
         )}
 
         {regions.length > 0 && !drawing && (
-          <div style={{ position: 'absolute', top: 80, left: 20, background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 2px 12px rgba(0,0,0,.12)', maxWidth: 240, zIndex: 1000, fontSize: '12px', maxHeight: '40vh', overflowY: 'auto' }}>
+          <DraggablePanel defaultPosition={{ top: 80, left: 20 }} title="Regions" style={{ background: '#fff', borderRadius: 10, padding: 12, boxShadow: '0 2px 12px rgba(0,0,0,.12)', maxWidth: 240, zIndex: 1000, fontSize: '12px', maxHeight: '40vh', overflowY: 'auto' }}>
             <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13, color: '#1a1a2e' }}>Regions</div>
             {regions.map((r) => {
               const color = REGION_COLORS[r.id % REGION_COLORS.length];
@@ -1435,7 +1512,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                 </div>
               );
             })}
-          </div>
+          </DraggablePanel>
         )}
 
         {/* Snapshots Panel */}

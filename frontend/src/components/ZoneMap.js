@@ -244,6 +244,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [snapshotsVisible, setSnapshotsVisible] = useState(true);
   const [snapshotsPos, setSnapshotsPos] = useState('tl'); // 'tl','tr','bl','br'
   const [reportMode, setReportMode] = useState(false);
+  const [districtReportMode, setDistrictReportMode] = useState(false);
   const [selectedReportItems, setSelectedReportItems] = useState(new Set());
   const [generatingReport, setGeneratingReport] = useState(false);
   const mapWrapRef = useRef(null);
@@ -1614,6 +1615,9 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         {reportMode && selectedReportItems.size > 0 && (
           <button style={{ ...styles.btn, background: '#4363d8' }} onClick={handleGeneratePDF} disabled={generatingReport}>📥 Generate PDF ({selectedReportItems.size})</button>
         )}
+        <button style={{ ...styles.btnS, border: districtReportMode ? '2px solid #1565c0' : '1px solid #64b5f6', color: districtReportMode ? '#1565c0' : '#42a5f5', fontWeight: districtReportMode ? 700 : 600 }} onClick={() => { setDistrictReportMode(v => !v); setReportMode(false); setCityPinMode(false); clearReportSelection(); }}>
+          {districtReportMode ? '📊 Exit District Report' : '📊 District Report'}
+        </button>
       </div>
 
       <div style={styles.mapWrap} ref={mapWrapRef}>
@@ -1645,7 +1649,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                 color: col, weight: rSel ? 6 : (isSel ? 3 : 2), fillColor: rSel ? '#ffd43b' : (isSel ? dColor : dColor),
                 fillOpacity: rSel ? 0.55 : (isSel ? 0.35 : 0.18), dashArray: (d.locked && !rSel) ? '8,4' : undefined,
               })} eventHandlers={{
-                click: () => { if (!drawing) { if (reportMode) { toggleReportItem('district', d.id); } else if (cityPinMode) { setSelDistrict(d.id); setSelRegion(d.region_id); setCityPinDistrictId(d.id); } else { setSelDistrict(isSel ? null : d.id); setSelRegion(d.region_id); if (!isSel) zoomToFeature('district', d.id); } } },
+                click: () => { if (!drawing) { if (districtReportMode) { handleGenerateDistrictPDF(d.id); } else if (reportMode) { toggleReportItem('district', d.id); } else if (cityPinMode) { setSelDistrict(d.id); setSelRegion(d.region_id); setCityPinDistrictId(d.id); } else { setSelDistrict(isSel ? null : d.id); setSelRegion(d.region_id); if (!isSel) zoomToFeature('district', d.id); } } },
               }} />
             ) : null;
           })}
@@ -2109,7 +2113,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                   style={{ width: 20, height: 20, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
                   title="Change district color"
                 />
-                <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => { setSelDistrict(d.id); setSelRegion(d.region_id); zoomToFeature('district', d.id); }}>
+                <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => { if (districtReportMode) { handleGenerateDistrictPDF(d.id); } else { setSelDistrict(d.id); setSelRegion(d.region_id); zoomToFeature('district', d.id); } }}>
                   <div style={{ fontWeight: 600, fontSize: 11, color: '#333' }}>📍 {d.name} <span style={{ fontSize: 10, color: '#666' }}>{d.code}</span></div>
                   {d.region_name && <div style={{ fontSize: 10, color: '#999' }}>{d.region_name}</div>}
                 </div>

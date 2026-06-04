@@ -1420,13 +1420,16 @@ async def update_district_city_centers(
 @router.delete("/districts/{district_id}")
 async def delete_district(district_id: int, db: AsyncSession = Depends(get_db)):
     """Delete a district and all its zones."""
-    from sqlalchemy import select
+    from sqlalchemy import select, text
     result = await db.execute(select(District).where(District.id == district_id))
     district = result.scalar_one_or_none()
     if not district:
         raise HTTPException(404, "District not found")
     if district.locked:
         raise HTTPException(423, "District is locked. Unlock it first.")
+    # Explicitly delete zones first to avoid FK constraint issues
+    await db.execute(text("DELETE FROM landmarks WHERE postal_zone_id IN (SELECT id FROM postal_zones WHERE district_id = :did)"), {"did": district_id})
+    await db.execute(text("DELETE FROM postal_zones WHERE district_id = :did"), {"did": district_id})
     await db.delete(district)
     await db.flush()
     return {"detail": "District deleted", "id": district_id}

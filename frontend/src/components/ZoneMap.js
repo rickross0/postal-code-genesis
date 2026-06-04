@@ -1067,7 +1067,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       // District info
       doc.setFontSize(14);
       doc.setTextColor(26, 26, 46);
-      doc.text('📍 ' + district.name, margin, 45);
+      doc.text('District: ' + district.name, margin, 45);
       doc.setFontSize(10);
       doc.setTextColor(80, 80, 80);
       doc.text('Code: ' + (district.code || 'N/A') + ' | Region: ' + (district.region_name || 'N/A'), margin, 52);

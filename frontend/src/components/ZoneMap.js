@@ -464,7 +464,25 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         const d = districts.find(x => x.id === id);
         if (d) {
           const zs = zones.filter(z => z.district_id === id);
-          items.push({ type: 'district', data: d, zones: zs });
+          const cityCenters = d.city_centers || [];
+          // Group zones by nearest city center
+          const cityGroups = cityCenters.map((cc, idx) => {
+            const cZones = zs.filter(z => {
+              if (!cityCenters.length) return idx === 0;
+              let nearestIdx = 0;
+              let nearestDist = Infinity;
+              cityCenters.forEach((c, i) => {
+                const dist = Math.hypot((z.center_lat || 0) - c.lat, (z.center_lng || 0) - c.lng);
+                if (dist < nearestDist) { nearestDist = dist; nearestIdx = i; }
+              });
+              return nearestIdx === idx;
+            });
+            return { ...cc, zones: cZones };
+          });
+          // Unassigned zones
+          const assignedIds = new Set(cityGroups.flatMap(g => g.zones.map(z => z.id)));
+          const unassigned = zs.filter(z => !assignedIds.has(z.id));
+          items.push({ type: 'district', data: d, zones: zs, cityGroups, unassigned });
         }
       } else if (type === 'zone') {
         const z = zones.find(x => x.id === id);
@@ -656,46 +674,33 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       const detailY = formatY + (formatLines.length * 4) + 4;
       doc.text(`Report covers ${selectedReportItems.size} selected area(s). See following pages for map and details.`, pageW / 2, detailY, { align: 'center' });
 
-      // PAGE 2 — Map screenshot (dedicated page, no text overlap)
+      // PAGE 2 — Map screenshot
       doc.addPage();
-
-      // Zoom map to selected report items before capture
       if (mapInstance && selectedReportItems.size > 0) {
         mapInstance.invalidateSize();
         const movePromise = waitForMapMoveEnd();
         zoomToReportItems();
         await movePromise;
-        await new Promise(r => setTimeout(r, 2000)); // tiles + GeoJSON SVG render
+        await new Promise(r => setTimeout(r, 2000));
       }
-
-      // Capture the leaflet map container
       const mapContainerEl = mapInstance ? mapInstance.getContainer() : mapWrapRef.current;
       const imgData = await captureMap(mapContainerEl);
-
-      // Get natural dimensions to preserve aspect ratio
       const img = new Image();
       img.src = imgData;
       await new Promise(resolve => { img.onload = resolve; });
       const aspectRatio = img.width / img.height;
-
-      // Full-page map image with small margins, preserving aspect ratio
       let imgW = pageW - margin * 2;
       let imgH = imgW / aspectRatio;
       const maxH = pageH - margin * 2;
-      if (imgH > maxH) {
-        imgH = maxH;
-        imgW = imgH * aspectRatio;
-      }
+      if (imgH > maxH) { imgH = maxH; imgW = imgH * aspectRatio; }
       const imgX = (pageW - imgW) / 2;
       const imgY = margin;
       doc.addImage(imgData, 'PNG', imgX, imgY, imgW, imgH);
-
-      // Label below map
       doc.setFontSize(10);
       doc.setTextColor(100, 100, 100);
       doc.text(`Map of selected areas — ${selectedCountry.name || 'Country'}`, pageW / 2, imgY + imgH + 6, { align: 'center' });
 
-      // PAGE 3 — Summary table
+      // PAGE 3 — Complete Summary Table
       doc.addPage();
       doc.setFontSize(16);
       doc.setTextColor(26, 26, 46);
@@ -705,74 +710,100 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       reportItems.forEach(item => {
         if (item.type === 'region') {
           const regionPostals = item.zones.map(z => z.postal_code).filter(Boolean).sort();
-          const postalRange = regionPostals.length > 1
-            ? `${regionPostals[0]} → ${regionPostals[regionPostals.length - 1]}`
-            : (regionPostals[0] || '-');
+          const postalRange = regionPostals.length > 1 ? `${regionPostals[0]} → ${regionPostals[regionPostals.length - 1]}` : (regionPostals[0] || '-');
+          const regionPop = item.zones.reduce((sum, z) => sum + (z.population || 0), 0);
+          const regionArea = item.zones.reduce((sum, z) => sum + (z.area_sq_km || 0), 0);
           tableBody.push([
-            'Region',
-            item.data.name,
-            item.data.code || '-',
-            item.districts.length,
-            item.zones.length,
+            'Region', item.data.name, '-', item.data.code || '-',
+            '-', item.districts.length, item.zones.length,
+            regionPop > 0 ? regionPop.toLocaleString() : '-',
+            regionArea > 0 ? regionArea.toFixed(1) : '-',
             postalRange,
           ]);
-          // Add each district in this region as a separate row
-          if (item.districts.length) {
-            item.districts.forEach(d => {
-              const dZones = item.zones.filter(z => z.district_id === d.id);
-              const dPostals = dZones.map(z => z.postal_code).filter(Boolean).sort();
-              const dRange = dPostals.length > 1
-                ? `${dPostals[0]} → ${dPostals[dPostals.length - 1]}`
-                : (dPostals[0] || '-');
+          item.districts.forEach(d => {
+            const dZones = item.zones.filter(z => z.district_id === d.id);
+            const dPostals = dZones.map(z => z.postal_code).filter(Boolean).sort();
+            const dRange = dPostals.length > 1 ? `${dPostals[0]} → ${dPostals[dPostals.length - 1]}` : (dPostals[0] || '-');
+            const dPop = dZones.reduce((sum, z) => sum + (z.population || 0), 0);
+            const dArea = dZones.reduce((sum, z) => sum + (z.area_sq_km || 0), 0);
+            tableBody.push([
+              '  └ District', d.name, d.region_name || '-', d.code || '-',
+              (d.city_centers || []).length, '-', dZones.length,
+              dPop > 0 ? dPop.toLocaleString() : '-',
+              dArea > 0 ? dArea.toFixed(1) : '-',
+              dRange,
+            ]);
+            dZones.forEach(z => {
               tableBody.push([
-                '  └ District',
-                d.name,
-                d.code || '-',
-                '-',
-                dZones.length,
-                dRange,
+                '      └ Zone', z.name, d.name, z.postal_code || '-',
+                '-', '-', '-',
+                z.population != null ? z.population.toLocaleString() : '-',
+                z.area_sq_km != null ? z.area_sq_km.toFixed(1) : '-',
+                z.status || '-',
               ]);
             });
-          }
+          });
         } else if (item.type === 'district') {
           const distPostals = item.zones.map(z => z.postal_code).filter(Boolean).sort();
-          const postalRange = distPostals.length > 1
-            ? `${distPostals[0]} → ${distPostals[distPostals.length - 1]}`
-            : (distPostals[0] || '-');
+          const postalRange = distPostals.length > 1 ? `${distPostals[0]} → ${distPostals[distPostals.length - 1]}` : (distPostals[0] || '-');
+          const distPop = item.zones.reduce((sum, z) => sum + (z.population || 0), 0);
+          const distArea = item.zones.reduce((sum, z) => sum + (z.area_sq_km || 0), 0);
           tableBody.push([
-            'District',
-            item.data.name,
-            item.data.code || '-',
-            '-',
-            item.zones.length,
+            'District', item.data.name, item.data.region_name || '-', item.data.code || '-',
+            (item.data.city_centers || []).length, '-', item.zones.length,
+            distPop > 0 ? distPop.toLocaleString() : '-',
+            distArea > 0 ? distArea.toFixed(1) : '-',
             postalRange,
           ]);
+          item.zones.forEach(z => {
+            tableBody.push([
+              '  └ Zone', z.name, item.data.name, z.postal_code || '-',
+              '-', '-', '-',
+              z.population != null ? z.population.toLocaleString() : '-',
+              z.area_sq_km != null ? z.area_sq_km.toFixed(1) : '-',
+              z.status || '-',
+            ]);
+          });
         } else {
           tableBody.push([
-            'Zone',
-            item.data.name,
+            'Zone', item.data.name,
+            item.data.district_name || '-',
             item.data.postal_code || '-',
-            '-',
-            '-',
-            '-',
+            '-', '-', '-',
+            item.data.population != null ? item.data.population.toLocaleString() : '-',
+            item.data.area_sq_km != null ? item.data.area_sq_km.toFixed(1) : '-',
+            item.data.status || '-',
           ]);
         }
       });
 
       autoTable(doc, {
         startY: 28,
-        head: [['Type', 'Name', 'Code', 'Districts', 'Zones', 'Postal Code Range']],
+        head: [['Type', 'Name', 'Region', 'Code', 'Cities', 'Districts', 'Zones', 'Population', 'Area (km²)', 'Postal Range']],
         body: tableBody,
         theme: 'striped',
-        headStyles: { fillColor: [108, 99, 255], textColor: 255 },
-        styles: { fontSize: 10, cellPadding: 2 },
+        headStyles: { fillColor: [108, 99, 255], textColor: 255, fontSize: 9 },
+        styles: { fontSize: 8, cellPadding: 1.5, overflow: 'linebreak' },
         margin: { left: margin, right: margin },
+        columnStyles: {
+          0: { cellWidth: 28 },
+          1: { cellWidth: 'auto' },
+          2: { cellWidth: 'auto' },
+          3: { cellWidth: 22 },
+          4: { cellWidth: 14 },
+          5: { cellWidth: 16 },
+          6: { cellWidth: 14 },
+          7: { cellWidth: 24 },
+          8: { cellWidth: 22 },
+          9: { cellWidth: 'auto' },
+        },
       });
 
       doc.setFontSize(9);
       doc.setTextColor(120, 120, 120);
-      doc.text('* Postal Code Format: first 2 letters of Region + first 2 letters of District + 3-digit sequential number.', margin, doc.lastAutoTable.finalY + 6);
-      doc.text('  Example: Region "Central" + District "Juba" = CEJU001, CEJU002...', margin, doc.lastAutoTable.finalY + 10);
+      const noteY = doc.lastAutoTable.finalY + 6;
+      doc.text('* Postal Code Format: first 2 letters of Region + first 2 letters of District + 3-digit sequential number.', margin, noteY);
+      doc.text('  Example: Region "Central" + District "Juba" = CEJU001, CEJU002...', margin, noteY + 4);
 
       // Detail pages
       reportItems.forEach(item => {
@@ -784,7 +815,6 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           doc.setFontSize(11);
           doc.setTextColor(80, 80, 80);
           doc.text(`Code: ${item.data.code || '-'} | Locked: ${item.data.locked ? 'Yes' : 'No'}`, margin, 28);
-          // Region stats
           const regionPop = item.zones.reduce((sum, z) => sum + (z.population || 0), 0);
           const regionArea = item.zones.reduce((sum, z) => sum + (z.area_sq_km || 0), 0);
           const regionCost = estimateCost(regionArea, regionPop);
@@ -798,7 +828,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
           doc.setTextColor(120, 120, 120);
           doc.text(regionCost.breakdown, margin, 60);
 
-          // Districts overview table
+          // Districts overview
           if (item.districts.length) {
             const startY = 66;
             doc.setFontSize(13);
@@ -806,105 +836,171 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             doc.text('Districts Overview', margin, startY);
             autoTable(doc, {
               startY: startY + 4,
-              head: [['District', 'Code', 'Zones', 'Postal Code Range']],
+              head: [['District', 'Code', 'Cities', 'Zones', 'Population', 'Area (km²)', 'Postal Code Range']],
               body: item.districts.map(d => {
                 const dZones = item.zones.filter(z => z.district_id === d.id);
                 const dPostals = dZones.map(z => z.postal_code).filter(Boolean).sort();
-                const range = dPostals.length > 1
-                  ? `${dPostals[0]} → ${dPostals[dPostals.length - 1]}`
-                  : (dPostals[0] || '-');
-                return [d.name, d.code || '-', dZones.length, range];
+                const range = dPostals.length > 1 ? `${dPostals[0]} → ${dPostals[dPostals.length - 1]}` : (dPostals[0] || '-');
+                const dPop = dZones.reduce((sum, z) => sum + (z.population || 0), 0);
+                const dArea = dZones.reduce((sum, z) => sum + (z.area_sq_km || 0), 0);
+                return [d.name, d.code || '-', (d.city_centers || []).length, dZones.length, dPop > 0 ? dPop.toLocaleString() : '-', dArea > 0 ? dArea.toFixed(1) : '-', range];
               }),
               theme: 'striped',
               headStyles: { fillColor: [108, 99, 255], textColor: 255 },
-              styles: { fontSize: 10, cellPadding: 2 },
+              styles: { fontSize: 9, cellPadding: 1.5 },
               margin: { left: margin, right: margin },
             });
           }
 
-          // Per-district zone tables
-          if (item.districts.length) {
-            item.districts.forEach(d => {
-              const dZones = item.zones.filter(z => z.district_id === d.id);
-              if (!dZones.length) return;
-              const y = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 80;
-              if (y > 250) {
-                doc.addPage();
-                doc.setFontSize(13);
-                doc.setTextColor(26, 26, 46);
-                doc.text(`District: ${d.name} — Postal Zones`, margin, 20);
-                autoTable(doc, {
-                  startY: 24,
-                  head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
-                  body: dZones.map(z => [
-                    z.postal_code || '-',
-                    z.name,
-                    z.population != null ? z.population.toLocaleString() : '-',
-                    z.area_sq_km != null ? z.area_sq_km.toLocaleString() : '-',
-                    z.status || '-',
-                  ]),
-                  theme: 'striped',
-                  headStyles: { fillColor: [108, 99, 255], textColor: 255 },
-                  styles: { fontSize: 10, cellPadding: 2 },
-                  margin: { left: margin, right: margin },
-                });
-              } else {
-                doc.setFontSize(12);
-                doc.setTextColor(26, 26, 46);
-                doc.text(`District: ${d.name} — Postal Zones`, margin, y);
-                autoTable(doc, {
-                  startY: y + 4,
-                  head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
-                  body: dZones.map(z => [
-                    z.postal_code || '-',
-                    z.name,
-                    z.population != null ? z.population.toLocaleString() : '-',
-                    z.area_sq_km != null ? z.area_sq_km.toLocaleString() : '-',
-                    z.status || '-',
-                  ]),
-                  theme: 'striped',
-                  headStyles: { fillColor: [108, 99, 255], textColor: 255 },
-                  styles: { fontSize: 10, cellPadding: 2 },
-                  margin: { left: margin, right: margin },
-                });
-              }
+          // Per-district detail with city centers
+          item.districts.forEach(d => {
+            const dZones = item.zones.filter(z => z.district_id === d.id);
+            if (!dZones.length) return;
+            const cityCenters = d.city_centers || [];
+            let y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : 80) + 10;
+            if (y > 240) { doc.addPage(); y = 20; }
+            doc.setFontSize(13);
+            doc.setTextColor(26, 26, 46);
+            doc.text(`District: ${d.name}`, margin, y);
+            y += 6;
+            if (cityCenters.length) {
+              doc.setFontSize(10);
+              doc.setTextColor(80, 80, 80);
+              doc.text(`City Centers: ${cityCenters.map(c => c.name).join(', ')}`, margin, y);
+              y += 5;
+            }
+            autoTable(doc, {
+              startY: y,
+              head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status', 'Nearest City']],
+              body: dZones.map(z => {
+                let nearestCity = '-';
+                if (cityCenters.length && z.center_lat != null && z.center_lng != null) {
+                  let nearestIdx = 0, nearestDist = Infinity;
+                  cityCenters.forEach((c, i) => {
+                    const dist = Math.hypot(z.center_lat - c.lat, z.center_lng - c.lng);
+                    if (dist < nearestDist) { nearestDist = dist; nearestIdx = i; }
+                  });
+                  nearestCity = cityCenters[nearestIdx].name;
+                }
+                return [
+                  z.postal_code || '-', z.name,
+                  z.population != null ? z.population.toLocaleString() : '-',
+                  z.area_sq_km != null ? z.area_sq_km.toFixed(1) : '-',
+                  z.status || '-', nearestCity,
+                ];
+              }),
+              theme: 'striped',
+              headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+              styles: { fontSize: 9, cellPadding: 1.5 },
+              margin: { left: margin, right: margin },
             });
-          }
+          });
         } else if (item.type === 'district') {
           doc.text(`District: ${item.data.name}`, margin, 20);
           doc.setFontSize(11);
           doc.setTextColor(80, 80, 80);
-          doc.text(`Code: ${item.data.code || '-'} | Locked: ${item.data.locked ? 'Yes' : 'No'}`, margin, 28);
+          doc.text(`Code: ${item.data.code || '-'} | Region: ${item.data.region_name || '-'} | Locked: ${item.data.locked ? 'Yes' : 'No'}`, margin, 28);
           const distPop = item.zones.reduce((sum, z) => sum + (z.population || 0), 0);
           const distArea = item.zones.reduce((sum, z) => sum + (z.area_sq_km || 0), 0);
           const distCost = estimateCost(distArea, distPop);
           doc.text(`Population: ${distPop > 0 ? distPop.toLocaleString() : '-'}`, margin, 34);
           doc.text(`Area: ${distArea > 0 ? distArea.toLocaleString() + ' km²' : '-'}`, margin, 40);
-          doc.text(`Zones: ${item.zones.length}`, margin, 46);
+          doc.text(`Zones: ${item.zones.length} | City Centers: ${(item.data.city_centers || []).length}`, margin, 46);
           doc.setFontSize(12);
           doc.setTextColor(108, 99, 255);
           doc.text(`Est. Implementation Cost: ${distCost.formatted}`, margin, 54);
           doc.setFontSize(9);
           doc.setTextColor(120, 120, 120);
           doc.text(distCost.breakdown, margin, 60);
-          if (item.zones.length) {
+
+          // City centers list
+          const cityCenters = item.data.city_centers || [];
+          if (cityCenters.length) {
             const startY = 66;
             doc.setFontSize(13);
             doc.setTextColor(26, 26, 46);
-            doc.text('Postal Zones', margin, startY);
+            doc.text('City Centers', margin, startY);
             autoTable(doc, {
               startY: startY + 4,
+              head: [['City Name', 'Lat', 'Lng', 'Zones Assigned']],
+              body: cityCenters.map((cc, idx) => {
+                const cZones = item.cityGroups && item.cityGroups[idx] ? item.cityGroups[idx].zones : [];
+                return [cc.name, cc.lat.toFixed(5), cc.lng.toFixed(5), cZones.length];
+              }),
+              theme: 'striped',
+              headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+              styles: { fontSize: 9, cellPadding: 1.5 },
+              margin: { left: margin, right: margin },
+            });
+          }
+
+          // Zones grouped by city center
+          if (item.cityGroups && item.cityGroups.length) {
+            item.cityGroups.forEach((cg, idx) => {
+              if (!cg.zones.length) return;
+              let y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : 80) + 10;
+              if (y > 240) { doc.addPage(); y = 20; }
+              doc.setFontSize(12);
+              doc.setTextColor(26, 26, 46);
+              doc.text(`City: ${cg.name} — Postal Zones`, margin, y);
+              autoTable(doc, {
+                startY: y + 4,
+                head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
+                body: cg.zones.map(z => [
+                  z.postal_code || '-', z.name,
+                  z.population != null ? z.population.toLocaleString() : '-',
+                  z.area_sq_km != null ? z.area_sq_km.toFixed(1) : '-',
+                  z.status || '-',
+                ]),
+                theme: 'striped',
+                headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+                styles: { fontSize: 9, cellPadding: 1.5 },
+                margin: { left: margin, right: margin },
+              });
+            });
+          }
+
+          // Unassigned zones
+          if (item.unassigned && item.unassigned.length) {
+            let y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : 80) + 10;
+            if (y > 240) { doc.addPage(); y = 20; }
+            doc.setFontSize(12);
+            doc.setTextColor(26, 26, 46);
+            doc.text('Unassigned Zones (no nearest city)', margin, y);
+            autoTable(doc, {
+              startY: y + 4,
               head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
-              body: item.zones.map(z => [
-                z.postal_code || '-',
-                z.name,
+              body: item.unassigned.map(z => [
+                z.postal_code || '-', z.name,
                 z.population != null ? z.population.toLocaleString() : '-',
-                z.area_sq_km != null ? z.area_sq_km.toLocaleString() : '-',
+                z.area_sq_km != null ? z.area_sq_km.toFixed(1) : '-',
                 z.status || '-',
               ]),
               theme: 'striped',
               headStyles: { fillColor: [108, 99, 255], textColor: 255 },
-              styles: { fontSize: 10, cellPadding: 2 },
+              styles: { fontSize: 9, cellPadding: 1.5 },
+              margin: { left: margin, right: margin },
+            });
+          }
+
+          // All zones table (fallback if no city centers)
+          if (!cityCenters.length && item.zones.length) {
+            const startY = 66;
+            doc.setFontSize(13);
+            doc.setTextColor(26, 26, 46);
+            doc.text('All Postal Zones', margin, startY);
+            autoTable(doc, {
+              startY: startY + 4,
+              head: [['Postal Code', 'Name', 'Population', 'Area (km²)', 'Status']],
+              body: item.zones.map(z => [
+                z.postal_code || '-', z.name,
+                z.population != null ? z.population.toLocaleString() : '-',
+                z.area_sq_km != null ? z.area_sq_km.toFixed(1) : '-',
+                z.status || '-',
+              ]),
+              theme: 'striped',
+              headStyles: { fillColor: [108, 99, 255], textColor: 255 },
+              styles: { fontSize: 9, cellPadding: 1.5 },
               margin: { left: margin, right: margin },
             });
           }
@@ -937,6 +1033,22 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     const district = districts.find(d => d.id === districtId);
     if (!district) return;
     const districtZones = zones.filter(z => z.district_id === districtId).sort((a, b) => (a.postal_code || '').localeCompare(b.postal_code || ''));
+    const cityCenters = district.city_centers || [];
+    // Group zones by nearest city center
+    const cityGroups = cityCenters.map((cc, idx) => {
+      const cZones = districtZones.filter(z => {
+        if (!cityCenters.length) return idx === 0;
+        let nearestIdx = 0, nearestDist = Infinity;
+        cityCenters.forEach((c, i) => {
+          const dist = Math.hypot((z.center_lat || 0) - c.lat, (z.center_lng || 0) - c.lng);
+          if (dist < nearestDist) { nearestDist = dist; nearestIdx = i; }
+        });
+        return nearestIdx === idx;
+      });
+      return { ...cc, zones: cZones };
+    });
+    const assignedIds = new Set(cityGroups.flatMap(g => g.zones.map(z => z.id)));
+    const unassigned = districtZones.filter(z => !assignedIds.has(z.id));
     try {
       setGeneratingReport(true);
       const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -960,29 +1072,96 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       doc.text('Code: ' + (district.code || 'N/A') + ' | Region: ' + (district.region_name || 'N/A'), margin, 52);
       doc.text('Total Zones: ' + districtZones.length, margin, 58);
 
-      // Zones table
-      if (districtZones.length > 0) {
-        const tableBody = districtZones.map(z => [
-          z.postal_code || '-',
-          z.name || '-',
-          z.status || '-',
-          z.population ? z.population.toLocaleString() : '-',
-          z.area_sq_km ? z.area_sq_km.toFixed(2) + ' km²' : '-',
-        ]);
+      // City centers
+      if (cityCenters.length > 0) {
+        doc.setFontSize(11);
+        doc.setTextColor(26, 26, 46);
+        doc.text('City Centers', margin, 65);
         autoTable(doc, {
-          startY: 65,
-          head: [['Postal Code', 'Zone Name', 'Status', 'Population', 'Area']],
-          body: tableBody,
+          startY: 68,
+          head: [['City Name', 'Lat', 'Lng', 'Zones Assigned']],
+          body: cityGroups.map(cg => [cg.name, cg.lat.toFixed(5), cg.lng.toFixed(5), cg.zones.length]),
           theme: 'striped',
           headStyles: { fillColor: [108, 99, 255], textColor: 255, fontSize: 10 },
           bodyStyles: { fontSize: 9, textColor: 60 },
           margin: { left: margin, right: margin },
           styles: { overflow: 'linebreak' },
         });
-      } else {
+      }
+
+      // Zones grouped by city center
+      let currentY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 75;
+      if (cityGroups.length > 0) {
+        cityGroups.forEach((cg, idx) => {
+          if (!cg.zones.length) return;
+          if (currentY > 240) { doc.addPage(); currentY = 20; }
+          doc.setFontSize(11);
+          doc.setTextColor(26, 26, 46);
+          doc.text('City: ' + cg.name + ' — Postal Zones', margin, currentY);
+          autoTable(doc, {
+            startY: currentY + 3,
+            head: [['Postal Code', 'Name', 'Status', 'Population', 'Area']],
+            body: cg.zones.map(z => [
+              z.postal_code || '-', z.name || '-', z.status || '-',
+              z.population ? z.population.toLocaleString() : '-',
+              z.area_sq_km ? z.area_sq_km.toFixed(2) + ' km²' : '-',
+            ]),
+            theme: 'striped',
+            headStyles: { fillColor: [108, 99, 255], textColor: 255, fontSize: 10 },
+            bodyStyles: { fontSize: 9, textColor: 60 },
+            margin: { left: margin, right: margin },
+            styles: { overflow: 'linebreak' },
+          });
+          currentY = doc.lastAutoTable.finalY + 10;
+        });
+      }
+
+      // Unassigned zones
+      if (unassigned.length > 0) {
+        if (currentY > 240) { doc.addPage(); currentY = 20; }
+        doc.setFontSize(11);
+        doc.setTextColor(26, 26, 46);
+        doc.text('Unassigned Zones', margin, currentY);
+        autoTable(doc, {
+          startY: currentY + 3,
+          head: [['Postal Code', 'Name', 'Status', 'Population', 'Area']],
+          body: unassigned.map(z => [
+            z.postal_code || '-', z.name || '-', z.status || '-',
+            z.population ? z.population.toLocaleString() : '-',
+            z.area_sq_km ? z.area_sq_km.toFixed(2) + ' km²' : '-',
+          ]),
+          theme: 'striped',
+          headStyles: { fillColor: [108, 99, 255], textColor: 255, fontSize: 10 },
+          bodyStyles: { fontSize: 9, textColor: 60 },
+          margin: { left: margin, right: margin },
+          styles: { overflow: 'linebreak' },
+        });
+      }
+
+      // Fallback: all zones if no city centers
+      if (cityCenters.length === 0 && districtZones.length > 0) {
+        if (currentY > 240) { doc.addPage(); currentY = 20; }
+        doc.setFontSize(11);
+        doc.setTextColor(26, 26, 46);
+        doc.text('All Postal Zones', margin, currentY);
+        autoTable(doc, {
+          startY: currentY + 3,
+          head: [['Postal Code', 'Name', 'Status', 'Population', 'Area']],
+          body: districtZones.map(z => [
+            z.postal_code || '-', z.name || '-', z.status || '-',
+            z.population ? z.population.toLocaleString() : '-',
+            z.area_sq_km ? z.area_sq_km.toFixed(2) + ' km²' : '-',
+          ]),
+          theme: 'striped',
+          headStyles: { fillColor: [108, 99, 255], textColor: 255, fontSize: 10 },
+          bodyStyles: { fontSize: 9, textColor: 60 },
+          margin: { left: margin, right: margin },
+          styles: { overflow: 'linebreak' },
+        });
+      } else if (districtZones.length === 0) {
         doc.setFontSize(11);
         doc.setTextColor(120, 120, 120);
-        doc.text('No zones assigned to this district yet.', margin, 70);
+        doc.text('No zones assigned to this district yet.', margin, currentY);
       }
 
       // Footer

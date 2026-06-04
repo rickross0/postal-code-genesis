@@ -222,6 +222,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [cityPinDraft, setCityPinDraft] = useState(null);
   const [cityPinModalOpen, setCityPinModalOpen] = useState(false);
   const [cityPinName, setCityPinName] = useState('');
+  const [cityPinDistrictId, setCityPinDistrictId] = useState(null);
 
   const PREDEFINED_REGION_NAMES = useMemo(() => [
     'Northern Bahr el Ghazal', 'Western Bahr el Ghazal', 'Lakes', 'Warrap',
@@ -1171,21 +1172,48 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const submitCityPin = useCallback(async () => {
     const name = cityPinName.trim();
     if (!name) { alert('Please enter a city name.'); return; }
-    if (!selDistrict) { alert('Select a district first.'); return; }
     if (!cityPinDraft) { alert('No pin location.'); return; }
+    let districtId = cityPinDistrictId || selDistrict;
+    // Auto-detect district from pin location if none selected
+    if (!districtId && districts.length > 0) {
+      const pt = { lat: cityPinDraft.lat, lng: cityPinDraft.lng };
+      let best = null;
+      let bestDist = Infinity;
+      for (const d of districts) {
+        if (d.boundary_geojson && d.boundary_geojson.type === 'Polygon') {
+          const coords = d.boundary_geojson.coordinates[0];
+          if (Array.isArray(coords) && coords.length > 0) {
+            let inside = false;
+            for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
+              const xi = coords[i][0], yi = coords[i][1];
+              const xj = coords[j][0], yj = coords[j][1];
+              if (((yi > pt.lng) !== (yj > pt.lng)) && (pt.lat < (xj - xi) * (pt.lng - yi) / (yj - yi) + xi)) inside = !inside;
+            }
+            if (inside) { best = d.id; break; }
+          }
+        }
+        if (d.center_lat != null && d.center_lng != null) {
+          const dist = Math.hypot(d.center_lat - pt.lat, d.center_lng - pt.lng);
+          if (dist < bestDist) { bestDist = dist; best = d.id; }
+        }
+      }
+      districtId = best;
+    }
+    if (!districtId) { alert('Select a district first, or drop the pin inside a district boundary.'); return; }
     try {
-      const d = districts.find(x => x.id === selDistrict);
+      const d = districts.find(x => x.id === districtId);
       const existing = d?.city_centers || [];
       const updated = [...existing, { name, lat: cityPinDraft.lat, lng: cityPinDraft.lng }];
-      await updateDistrictCityCenters(selDistrict, updated);
+      await updateDistrictCityCenters(districtId, updated);
       await loadData();
       setCityPinModalOpen(false);
       setCityPinDraft(null);
+      setCityPinDistrictId(null);
       setCityPinName('');
     } catch (err) {
       alert('Failed to save city pin: ' + (err.response?.data?.detail || err.message));
     }
-  }, [cityPinName, cityPinDraft, selDistrict, districts, loadData]);
+  }, [cityPinName, cityPinDraft, selDistrict, districts, loadData, cityPinDistrictId]);
 
   const submitNameModal = useCallback(async () => {
     const name = customName.trim() || selectedPresetName;
@@ -1336,6 +1364,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     }
     if (cityPinMode) {
       setCityPinDraft({ lat: e.latlng.lat, lng: e.latlng.lng });
+      setCityPinDistrictId(selDistrict || null);
       setCityPinModalOpen(true);
       setCityPinName('');
       return;
@@ -1423,7 +1452,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
             const color = REGION_COLORS[r.id % REGION_COLORS.length];
             const rSel = isReportSelected('region', r.id);
             return (
-              <GeoJSON key={`rg-${r.id}-${r.boundary_geojson?.type||""}`} data={r.boundary_geojson} style={() => ({ color: rSel ? '#ffd43b' : color, weight: rSel ? 6 : 3, fillColor: rSel ? '#ffd43b' : color, fillOpacity: rSel ? 0.55 : 0.2, dashArray: rSel ? undefined : '8,4' })} eventHandlers={{ click: () => { if (!drawing) { if (reportMode) { toggleReportItem('region', r.id); } else { setSelRegion(r.id); setSelDistrict(null); zoomToFeature('region', r.id); } } } }} />
+              <GeoJSON key={`rg-${r.id}-${r.boundary_geojson?.type||""}`} data={r.boundary_geojson} style={() => ({ color: rSel ? '#ffd43b' : color, weight: rSel ? 6 : 3, fillColor: rSel ? '#ffd43b' : color, fillOpacity: rSel ? 0.55 : 0.2, dashArray: rSel ? undefined : '8,4' })} eventHandlers={{ click: () => { if (!drawing) { if (reportMode) { toggleReportItem('region', r.id); } else if (cityPinMode) { setSelRegion(r.id); } else { setSelRegion(r.id); setSelDistrict(null); zoomToFeature('region', r.id); } } } }} />
             );
           })}
 
@@ -1437,7 +1466,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                 color: col, weight: rSel ? 6 : (isSel ? 3 : 2), fillColor: rSel ? '#ffd43b' : (isSel ? dColor : dColor),
                 fillOpacity: rSel ? 0.55 : (isSel ? 0.35 : 0.18), dashArray: (d.locked && !rSel) ? '8,4' : undefined,
               })} eventHandlers={{
-                click: () => { if (!drawing) { if (reportMode) { toggleReportItem('district', d.id); } else { setSelDistrict(isSel ? null : d.id); setSelRegion(d.region_id); if (!isSel) zoomToFeature('district', d.id); } } },
+                click: () => { if (!drawing) { if (reportMode) { toggleReportItem('district', d.id); } else if (cityPinMode) { setSelDistrict(d.id); setSelRegion(d.region_id); setCityPinDistrictId(d.id); } else { setSelDistrict(isSel ? null : d.id); setSelRegion(d.region_id); if (!isSel) zoomToFeature('district', d.id); } } },
               }} />
             ) : null;
           })}
@@ -1454,7 +1483,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                   color: zRep ? '#ffd43b' : (isSel ? '#fff' : color), weight: zRep ? 5 : (isSel ? 3 : 1.5),
                   fillColor: zRep ? '#ffd43b' : color, fillOpacity: zRep ? 0.55 : (isSel ? 0.5 : 0.3),
                   dashArray: zone.locked ? '4,4' : undefined,
-                })} eventHandlers={{ click: () => { if (!drawing && !movingZone) { if (reportMode) { toggleReportItem('zone', zone.id); } else { setSelectedZone(zone); zoomToFeature('zone', zone.id); } } } }} />
+                })} eventHandlers={{ click: () => { if (!drawing && !movingZone) { if (reportMode) { toggleReportItem('zone', zone.id); } else if (!cityPinMode) { setSelectedZone(zone); zoomToFeature('zone', zone.id); } } } }} />
               );
             }
             return (
@@ -1993,7 +2022,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
               </div>
               <div style={{ fontSize: 11, color: '#999', marginBottom: 12 }}>Lat: {cityPinDraft?.lat?.toFixed(5)}, Lng: {cityPinDraft?.lng?.toFixed(5)}</div>
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button style={{ ...styles.btnS, fontSize: 13, padding: '8px 16px' }} onClick={() => { setCityPinModalOpen(false); setCityPinDraft(null); }}>Cancel</button>
+                <button style={{ ...styles.btnS, fontSize: 13, padding: '8px 16px' }} onClick={() => { setCityPinModalOpen(false); setCityPinDraft(null); setCityPinDistrictId(null); }}>Cancel</button>
                 <button style={{ ...styles.btn, fontSize: 13, padding: '8px 16px' }} onClick={submitCityPin}>Save City Pin</button>
               </div>
             </div>

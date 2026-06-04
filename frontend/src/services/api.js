@@ -31,6 +31,8 @@ export const autoCreateDistricts = (regionId, numDistricts = null) =>
   api.post(`/regions/${regionId}/districts/auto-create${numDistricts ? `?num_districts=${numDistricts}` : ''}`);
 export const updateDistrict = (districtId, data) => api.put(`/districts/${districtId}`, data);
 export const deleteDistrict = (districtId) => api.delete(`/districts/${districtId}`);
+export const getDistrictCityCenters = (districtId) => api.get(`/districts/${districtId}/city-centers`);
+export const updateDistrictCityCenters = (districtId, cityCenters) => api.put(`/districts/${districtId}/city-centers`, { city_centers: cityCenters });
 
 // Regions
 export const listRegions = (countryId) => api.get(`/countries/${countryId}/regions`);

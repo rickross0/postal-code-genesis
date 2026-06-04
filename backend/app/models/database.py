@@ -67,6 +67,7 @@ class District(Base):
     boundary = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=True)
     center_point = Column(Geometry("POINT", srid=4326), nullable=True)
     color = Column(String(7), nullable=True)  # hex color e.g. #e6194b
+    city_centers = Column(Text, default="[]")  # JSON: [{"name":"Laascaanood","lat":8.45,"lng":47.35}]
     locked = Column(Boolean, default=False)
     created_at = Column(DateTime, default=lambda: datetime.now())
 

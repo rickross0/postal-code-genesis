@@ -2,7 +2,7 @@ import logging
 import json
 """FastAPI route definitions for the Postal Code Genesis Platform."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Dict, Any, Optional
 
@@ -262,12 +262,15 @@ async def auto_create_zones(
     region_code: str = Query("01", description="2-digit region code"),
     district_code: str = Query("01", description="2-digit district code"),
     target_population: int = Query(5000, description="Target population per zone"),
+    body: dict = Body(default={}),
     db: AsyncSession = Depends(get_db),
 ):
-    """Auto-generate postal zones for a district, starting from the capital city outward."""
+    """Auto-generate postal zones for a district, starting from the capital city outward.
+    Optionally pass city_centers in body: {city_centers: [{name, lat, lng}]} to use as seed points."""
     from sqlalchemy import select, text
     from geoalchemy2.shape import from_shape, to_shape
     from shapely.geometry import Point, shape, box, mapping as shapely_mapping
+    import json
 
     # Get country
     country_res = await db.execute(select(Country).where(Country.id == country_id))
@@ -326,8 +329,20 @@ async def auto_create_zones(
     # Delete existing zones for this district to avoid duplicate postal_code errors
     await db.execute(text("DELETE FROM postal_zones WHERE district_id = :did"), {"did": district.id})
 
-    # Generate zones inside this district boundary, starting from capital
-    cap_point = Point(country.capital_lng or district_boundary.centroid.x, country.capital_lat or district_boundary.centroid.y)
+    # Use city centers from request body or from district record
+    district_city_centers = body.get("city_centers", [])
+    if not district_city_centers and district.city_centers:
+        try:
+            district_city_centers = json.loads(district.city_centers)
+        except Exception:
+            district_city_centers = []
+
+    # Determine capital point: first city center, then country capital, then district centroid
+    if district_city_centers:
+        first = district_city_centers[0]
+        cap_point = Point(first.get("lng", 0), first.get("lat", 0))
+    else:
+        cap_point = Point(country.capital_lng or district_boundary.centroid.x, country.capital_lat or district_boundary.centroid.y)
 
     engine = ZoneCreationEngine()
     zones = engine.create_zones_in_district(
@@ -335,9 +350,13 @@ async def auto_create_zones(
         capital_point=cap_point,
         target_population_per_zone=target_population,
         estimated_population=target_population * 4,
+        city_centers=district_city_centers,
     )
-    dc = {"lat": country.capital_lat, "lng": country.capital_lng}
+    dc = {"lat": cap_point.y, "lng": cap_point.x}
     zones = engine.assign_codes(zones, region.name, district.name, dc)
+    # Name the first zone after the primary city center if available
+    if district_city_centers and zones:
+        zones[0]["name"] = district_city_centers[0].get("name", zones[0].get("name")) + " Central"
 
     created_zones = []
     for z in zones:
@@ -523,10 +542,22 @@ async def auto_create_all_zones(
                     cap_lng + delta_deg, cap_lat + delta_deg
                 )
 
-            cap_point = Point(
-                country.capital_lng or district_boundary.centroid.x,
-                country.capital_lat or district_boundary.centroid.y,
-            )
+            # Load district city centers
+            district_city_centers = []
+            if district.city_centers:
+                try:
+                    district_city_centers = json.loads(district.city_centers)
+                except Exception:
+                    district_city_centers = []
+
+            if district_city_centers:
+                first = district_city_centers[0]
+                cap_point = Point(first.get("lng", 0), first.get("lat", 0))
+            else:
+                cap_point = Point(
+                    country.capital_lng or district_boundary.centroid.x,
+                    country.capital_lat or district_boundary.centroid.y,
+                )
 
             try:
                 zones = engine.create_zones_in_district(
@@ -534,12 +565,15 @@ async def auto_create_all_zones(
                     capital_point=cap_point,
                     target_population_per_zone=target_population,
                     estimated_population=target_population * 4,
+                    city_centers=district_city_centers,
                 )
             except Exception:
                 continue
 
             dc = {"lat": cap_point.y, "lng": cap_point.x}
             zones = engine.assign_codes(zones, region.name, district.name, dc)
+            if district_city_centers and zones:
+                zones[0]["name"] = district_city_centers[0].get("name", zones[0].get("name")) + " Central"
 
             for z in zones:
                 boundary_shape = shape(z.get("boundary_geojson", {})) if z.get("boundary_geojson") else None
@@ -753,7 +787,7 @@ async def list_districts_with_boundaries(
     from sqlalchemy import text
     result = await db.execute(text("""
         SELECT
-            d.id, d.name, d.code, d.local_name, d.region_id, d.color,
+            d.id, d.name, d.code, d.local_name, d.region_id, d.color, d.city_centers,
             ST_Y(d.center_point) AS center_lat,
             ST_X(d.center_point) AS center_lng,
             d.locked AS district_locked,
@@ -769,6 +803,14 @@ async def list_districts_with_boundaries(
         row = dict(r)
         row["boundary_geojson"] = json.loads(r["boundary_geojson"]) if r["boundary_geojson"] else None
         row["locked"] = bool(r.get("district_locked", False))
+        cc = r.get("city_centers")
+        if cc:
+            try:
+                row["city_centers"] = json.loads(cc)
+            except Exception:
+                row["city_centers"] = []
+        else:
+            row["city_centers"] = []
         rows.append(row)
     return rows
 
@@ -1336,6 +1378,43 @@ async def update_district(
             raise HTTPException(400, f"Invalid boundary: {e}")
     await db.flush()
     return {"id": district.id, "name": district.name, "code": district.code, "locked": district.locked}
+
+
+@router.get("/districts/{district_id}/city-centers")
+async def get_district_city_centers(district_id: int, db: AsyncSession = Depends(get_db)):
+    """Get city centers for a district."""
+    from sqlalchemy import select
+    result = await db.execute(select(District).where(District.id == district_id))
+    district = result.scalar_one_or_none()
+    if not district:
+        raise HTTPException(404, "District not found")
+    import json
+    try:
+        centers = json.loads(district.city_centers or "[]")
+    except Exception:
+        centers = []
+    return {"district_id": district_id, "city_centers": centers}
+
+
+@router.put("/districts/{district_id}/city-centers")
+async def update_district_city_centers(
+    district_id: int,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update city centers for a district. Body: {city_centers: [{name, lat, lng}]}."""
+    from sqlalchemy import select
+    result = await db.execute(select(District).where(District.id == district_id))
+    district = result.scalar_one_or_none()
+    if not district:
+        raise HTTPException(404, "District not found")
+    if district.locked:
+        raise HTTPException(423, "District is locked. Unlock it first.")
+    import json
+    centers = data.get("city_centers", [])
+    district.city_centers = json.dumps(centers)
+    await db.flush()
+    return {"district_id": district_id, "city_centers": centers}
 
 
 @router.delete("/districts/{district_id}")

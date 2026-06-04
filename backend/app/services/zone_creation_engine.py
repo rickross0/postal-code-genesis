@@ -216,16 +216,28 @@ class ZoneCreationEngine:
         capital_point: Point,
         target_population_per_zone: int = 5000,
         estimated_population: Optional[int] = None,
+        city_centers: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, Any]]:
-        """Create zones inside a district boundary, starting from the capital city."""
+        """Create zones inside a district boundary, starting from the capital city.
+        city_centers: list of {name, lat, lng} dicts used as seed points."""
         if district_boundary is None or district_boundary.is_empty:
             raise ValueError("Invalid district boundary")
 
         n_zones = max(1, estimated_population // target_population_per_zone) if estimated_population else 4
 
         # Generate seed points inside the district
-        # Capital is always zone 1 center
-        seed_points = [[capital_point.x, capital_point.y]]
+        # Use city centers as first seed points if provided, otherwise capital
+        seed_points = []
+        if city_centers:
+            for cc in city_centers:
+                pt = Point(cc.get("lng", 0), cc.get("lat", 0))
+                if district_boundary.contains(pt):
+                    seed_points.append([pt.x, pt.y])
+                else:
+                    # Fallback to boundary centroid if outside
+                    seed_points.append([district_boundary.centroid.x, district_boundary.centroid.y])
+        if not seed_points:
+            seed_points.append([capital_point.x, capital_point.y])
 
         # Additional points: spread outward from capital within district
         import math
@@ -278,7 +290,7 @@ class ZoneCreationEngine:
                 zones.append({
                     "id": i + 1,
                     "center": {"lng": float(points_arr[i][0]), "lat": float(points_arr[i][1])},
-                    "boundary_geojson": shapely_mapping(zone_polygon) if hasattr(zone_polygon, "__geo_interface__") else None,
+                    "boundary_geojson": mapping(zone_polygon) if hasattr(zone_polygon, "__geo_interface__") else None,
                     "area_sq_km": self._calc_area_sq_km(zone_polygon),
                     "landmarks": [],
                     "name": None,

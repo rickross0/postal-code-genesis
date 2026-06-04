@@ -99,6 +99,7 @@ async def init_db():
                 await _add_column_if_missing(conn, "regions", "locked", "BOOLEAN DEFAULT FALSE")
                 await _add_column_if_missing(conn, "districts", "locked", "BOOLEAN DEFAULT FALSE")
                 await _add_column_if_missing(conn, "districts", "color", "VARCHAR(7)")
+                await _add_column_if_missing(conn, "districts", "city_centers", "TEXT DEFAULT '[]'")
                 await _add_column_if_missing(conn, "postal_zones", "locked", "BOOLEAN DEFAULT FALSE")
                 await _add_column_if_missing(conn, "postal_zones", "color", "VARCHAR(7)")
                 # Auto-create drawing_snapshots table if missing

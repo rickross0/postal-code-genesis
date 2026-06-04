@@ -10,6 +10,7 @@ import {
   deleteZone, listRegions, createRegion, updateRegion, deleteRegion, autoCreateRegions, deleteAllRegions,
   createDistrict, updateDistrict, deleteDistrict, autoCreateDistricts, updateCountryBoundary,
   saveSnapshot, listSnapshots, restoreSnapshot, splitZone,
+  getDistrictCityCenters, updateDistrictCityCenters,
 } from '../services/api';
 
 const ZONE_COLORS = [
@@ -215,6 +216,12 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
   const [nameModalTarget, setNameModalTarget] = useState(null); // regionId for district, or callback context
   const [customName, setCustomName] = useState('');
   const [selectedPresetName, setSelectedPresetName] = useState('');
+
+  // City Pin mode
+  const [cityPinMode, setCityPinMode] = useState(false);
+  const [cityPinDraft, setCityPinDraft] = useState(null);
+  const [cityPinModalOpen, setCityPinModalOpen] = useState(false);
+  const [cityPinName, setCityPinName] = useState('');
 
   const PREDEFINED_REGION_NAMES = useMemo(() => [
     'Northern Bahr el Ghazal', 'Western Bahr el Ghazal', 'Lakes', 'Warrap',
@@ -1161,6 +1168,25 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
     setSelectedPresetName('');
   }, []);
 
+  const submitCityPin = useCallback(async () => {
+    const name = cityPinName.trim();
+    if (!name) { alert('Please enter a city name.'); return; }
+    if (!selDistrict) { alert('Select a district first.'); return; }
+    if (!cityPinDraft) { alert('No pin location.'); return; }
+    try {
+      const d = districts.find(x => x.id === selDistrict);
+      const existing = d?.city_centers || [];
+      const updated = [...existing, { name, lat: cityPinDraft.lat, lng: cityPinDraft.lng }];
+      await updateDistrictCityCenters(selDistrict, updated);
+      await loadData();
+      setCityPinModalOpen(false);
+      setCityPinDraft(null);
+      setCityPinName('');
+    } catch (err) {
+      alert('Failed to save city pin: ' + (err.response?.data?.detail || err.message));
+    }
+  }, [cityPinName, cityPinDraft, selDistrict, districts, loadData]);
+
   const submitNameModal = useCallback(async () => {
     const name = customName.trim() || selectedPresetName;
     if (!name) { alert('Please select or enter a name.'); return; }
@@ -1308,12 +1334,18 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
       handleMoveZone(movingZone, e.latlng.lat, e.latlng.lng);
       return;
     }
+    if (cityPinMode) {
+      setCityPinDraft({ lat: e.latlng.lat, lng: e.latlng.lng });
+      setCityPinModalOpen(true);
+      setCityPinName('');
+      return;
+    }
     if (!drawing) {
       clearSelections();
       return;
     }
     setDrawPoints(prev => [...prev, [e.latlng.lat, e.latlng.lng]]);
-  }, [drawing, movingZone, clearSelections]);
+  }, [drawing, movingZone, clearSelections, cityPinMode]);
 
   if (!selectedCountry) return <div style={styles.empty}>Select a country to view zones</div>;
 
@@ -1341,6 +1373,7 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
         <button style={styles.btn} onClick={() => startDraw('region', null)}>🗺 Region</button>
         <button style={styles.btnS} onClick={() => startDraw('district', null)}>📍 District</button>
         <button style={styles.btnG} onClick={() => startDraw('zone', null)}>✏️ Zone</button>
+        <button style={{ ...styles.btnS, border: cityPinMode ? '2px solid #ff6b6b' : '1px solid #e53935', color: cityPinMode ? '#ff6b6b' : '#e53935', fontWeight: cityPinMode ? 700 : 600 }} onClick={() => { setCityPinMode(v => !v); setDrawing(false); }}>{cityPinMode ? '📍 Exit Pin Mode' : '📍 Drop City Pin'}</button>
         <button style={styles.btnG} onClick={handleAutoGen}>⚡ Auto-Fill Zones</button>
         {undoableZones && (
           <button style={{ ...styles.btnD, background: '#c62828' }} onClick={handleUndoZones}>↩️ Undo Zones</button>
@@ -1443,6 +1476,23 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
                 interactive={false} />
             );
           })}
+
+          {/* City Pin Markers */}
+          {districts.map(d => (d.city_centers || []).map((cc, idx) => (
+            <Marker
+              key={`citypin-${d.id}-${idx}`}
+              position={[cc.lat, cc.lng]}
+              icon={L.divIcon({ className: '', html: '<div style="background:#e53935;padding:3px 8px;border-radius:12px;font-size:10px;font-weight:700;color:#fff;border:2px solid #fff;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.3);">📍 ' + cc.name + '</div>', iconSize: [100, 24], iconAnchor: [50, 24] })}
+              interactive={false}
+            />
+          )))}
+          {cityPinDraft && cityPinMode && (
+            <Marker
+              position={[cityPinDraft.lat, cityPinDraft.lng]}
+              icon={L.divIcon({ className: '', html: '<div style="background:#ff6b6b;padding:3px 8px;border-radius:12px;font-size:10px;font-weight:700;color:#fff;border:2px solid #fff;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.3);">📍 New City Pin</div>', iconSize: [100, 24], iconAnchor: [50, 24] })}
+              interactive={false}
+            />
+          )}
 
           {drawing && drawPoints.length > 0 && (
             <>
@@ -1607,6 +1657,20 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
               </button>
               <button style={{ ...styles.btnS, background: '#e3f2fd', color: '#1565c0', border: '1px solid #64b5f6' }} onClick={() => handleGenerateDistrictPDF(selDistrict)} disabled={generatingReport}>📄 District Report</button>
               <button style={styles.btnD} onClick={() => handleDelete('district', selDistrict)}>🗑</button>
+            </div>
+            <div style={{ marginTop: 10, fontSize: 11, color: '#666' }}>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>City Centers:</div>
+              {(districts.find(d => d.id === selDistrict)?.city_centers || []).length === 0 && <div style={{ color: '#999', fontSize: 10 }}>No city pins yet. Use 📍 Drop City Pin.</div>}
+              {(districts.find(d => d.id === selDistrict)?.city_centers || []).map((cc, idx) => (
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                  <span>📍 {cc.name}</span>
+                  <button style={{ background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer', fontSize: 10 }} onClick={async () => {
+                    const d = districts.find(x => x.id === selDistrict);
+                    const updated = (d.city_centers || []).filter((_, i) => i !== idx);
+                    try { await updateDistrictCityCenters(selDistrict, updated); await loadData(); } catch (e) { alert('Failed: ' + (e.response?.data?.detail || e.message)); }
+                  }}>Remove</button>
+                </div>
+              ))}
             </div>
           </DraggablePanel>
         )}
@@ -1908,6 +1972,32 @@ export default function ZoneMap({ selectedCountry, onCountryUpdated }) {
               </div>
             ))}
           </DraggablePanel>
+        )}
+
+        {/* City Pin Modal */}
+        {cityPinModalOpen && (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 420, width: '90%', boxShadow: '0 8px 40px rgba(0,0,0,0.2)' }}>
+              <div style={{ fontWeight: 700, fontSize: 16, color: '#1a1a2e', marginBottom: 16 }}>📍 Name this City Center</div>
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>City name (e.g. Laascaanood):</div>
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="City name..."
+                  value={cityPinName}
+                  onChange={(e) => setCityPinName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') submitCityPin(); }}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #ddd', fontSize: 13 }}
+                />
+              </div>
+              <div style={{ fontSize: 11, color: '#999', marginBottom: 12 }}>Lat: {cityPinDraft?.lat?.toFixed(5)}, Lng: {cityPinDraft?.lng?.toFixed(5)}</div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button style={{ ...styles.btnS, fontSize: 13, padding: '8px 16px' }} onClick={() => { setCityPinModalOpen(false); setCityPinDraft(null); }}>Cancel</button>
+                <button style={{ ...styles.btn, fontSize: 13, padding: '8px 16px' }} onClick={submitCityPin}>Save City Pin</button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Naming Modal */}

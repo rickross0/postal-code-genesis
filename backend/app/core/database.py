@@ -74,6 +74,19 @@ async def _check_connection():
         return False
 
 
+async def _create_extension_if_available(conn, ext_name):
+    """Create an extension, gracefully skipping if not available on the system."""
+    from sqlalchemy import text
+    try:
+        await conn.execute(text(f"SAVEPOINT sp_{ext_name}"))
+        await conn.execute(text(f"CREATE EXTENSION IF NOT EXISTS {ext_name}"))
+        await conn.execute(text(f"RELEASE SAVEPOINT sp_{ext_name}"))
+        logger.info(f"Extension {ext_name} enabled")
+    except Exception as e:
+        await conn.execute(text(f"ROLLBACK TO SAVEPOINT sp_{ext_name}"))
+        logger.warning(f"Extension {ext_name} not available (non-fatal): {e}")
+
+
 async def init_db():
     """Initialize database, enable PostGIS, create tables, and auto-migrate."""
     connected = await _check_connection()
@@ -86,9 +99,10 @@ async def init_db():
         try:
             from sqlalchemy import text
             async with engine.begin() as conn:
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis_topology"))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                await _create_extension_if_available(conn, "postgis")
+                await _create_extension_if_available(conn, "postgis_topology")
+                await _create_extension_if_available(conn, "pg_trgm")
+
                 await conn.run_sync(Base.metadata.create_all)
 
                 # Auto-migrate: add columns that exist in the model but not in the DB
